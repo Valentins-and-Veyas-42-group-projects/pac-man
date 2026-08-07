@@ -12,4 +12,8 @@ duplicated as markdown docs here.
 - Project board: TODO -- link once created (needs the `project`
   OAuth scope: `gh auth refresh -s project,read:project`)
 
+See [AGENTS.md](AGENTS.md) / [CLAUDE.md](CLAUDE.md) for the workflow
+any agent (human-directed or autonomous) should follow to keep issues
+and the project board in sync, plus a cached issue snapshot.
+
 Team: vsack, sfurst.
