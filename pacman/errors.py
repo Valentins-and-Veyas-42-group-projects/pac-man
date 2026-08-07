@@ -1,8 +1,17 @@
-"""Shared result and error types for Python CLI and parsing utilities."""
+"""Shared result and error types for Python CLI and parsing
+utilities."""
 
 from dataclasses import dataclass
 from enum import Enum, auto
-from typing import ClassVar, Generic, TypeAlias, TypeVar, Any, NoReturn, Callable
+from typing import (
+    Any,
+    Callable,
+    ClassVar,
+    Generic,
+    NoReturn,
+    TypeAlias,
+    TypeVar,
+)
 
 
 class CliError(Enum):
@@ -32,7 +41,8 @@ class Diagnostic:
 
 
 class BubbleUpError(Exception):
-    """Internal exception to bubble Err results up to a catch_bubble decorator."""
+    """Internal exception to bubble Err results up to a catch_bubble
+    decorator."""
 
     def __init__(self, err_payload: "Err[Any]"):
         super().__init__(f"BubbleUpError: {err_payload.error}")

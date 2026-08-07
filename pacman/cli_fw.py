@@ -34,7 +34,8 @@ def arg(
     default: Any = MISSING,
     default_factory: Any = MISSING,
 ) -> Any:
-    """Helper to define dataclass fields for CLI arguments without nested metadata dicts."""
+    """Helper to define dataclass fields for CLI arguments without
+    nested metadata dicts."""
     metadata = {
         "help": help,
         "positional": positional,
@@ -130,7 +131,8 @@ def _collect_args(
                 origin = get_origin(resolved_typ)
                 if origin is not None:
                     args = [
-                        t for t in get_args(resolved_typ) if t is not type(None)
+                        t for t in get_args(resolved_typ)
+                        if t is not type(None)
                     ]
                     if len(args) == 1:
                         arg_type = cast(type[Any], args[0])
@@ -173,7 +175,10 @@ def _instantiate_schema(
             )
             if any_provided:
                 args_dict[f.name] = _instantiate_schema(
-                    cast(type[Any], resolved_typ), values, explicitly_provided, f"{key}."
+                    cast(type[Any], resolved_typ),
+                    values,
+                    explicitly_provided,
+                    f"{key}.",
                 )
             else:
                 if f.default is not MISSING:
@@ -182,7 +187,10 @@ def _instantiate_schema(
                     args_dict[f.name] = f.default_factory()
                 else:
                     args_dict[f.name] = _instantiate_schema(
-                        cast(type[Any], resolved_typ), values, explicitly_provided, f"{key}."
+                        cast(type[Any], resolved_typ),
+                        values,
+                        explicitly_provided,
+                        f"{key}.",
                     )
         else:
             args_dict[f.name] = values.get(key)
@@ -341,7 +349,7 @@ class Parser:
                 consume_count = remaining_vals - remaining_args_count
                 if consume_count < 0:
                     consume_count = 0
-                consumed = positional_values[val_idx : val_idx + consume_count]
+                consumed = positional_values[val_idx: val_idx + consume_count]
                 val_idx += consume_count
                 for c_val in consumed:
                     parsed_tokens.append((arg.name, c_val))
@@ -405,21 +413,25 @@ class Parser:
                 except (ValueError, TypeError):
                     val_str = str(token_val) if token_val is not None else ""
                     col_start = raw_cmd_string.rfind(val_str)
-                    col_end = col_start + len(val_str) if col_start != -1 else 0
+                    col_end = col_start + \
+                        len(val_str) if col_start != -1 else 0
                     diag = Diagnostic(
                         filename=current_file,
                         line_num=1,
                         line_text=raw_cmd_string,
                         col_start=max(0, col_start),
                         col_end=max(0, col_end),
-                        help_msg=f"Invalid value for argument '{arg.name}': '{token_val}'. Expected type {arg.arg_type.__name__}.",
+                        help_msg=f"Invalid value for argument '{
+                            arg.name}': '{token_val}'. Expected type {
+                            arg.arg_type.__name__}.",
                     )
                     return CliErr(CliError.INVALID_ARGUMENT_TYPE, diag)
             else:
                 if arg.choices and token_val not in arg.choices:
                     val_str = str(token_val) if token_val is not None else ""
                     col_start = raw_cmd_string.rfind(val_str)
-                    col_end = col_start + len(val_str) if col_start != -1 else 0
+                    col_end = col_start + \
+                        len(val_str) if col_start != -1 else 0
                     best_match, dist = _find_best_string_match(
                         val_str, arg.choices
                     )
@@ -447,14 +459,17 @@ class Parser:
                 except (ValueError, TypeError):
                     val_str = str(token_val) if token_val is not None else ""
                     col_start = raw_cmd_string.rfind(val_str)
-                    col_end = col_start + len(val_str) if col_start != -1 else 0
+                    col_end = col_start + \
+                        len(val_str) if col_start != -1 else 0
                     diag = Diagnostic(
                         filename=current_file,
                         line_num=1,
                         line_text=raw_cmd_string,
                         col_start=max(0, col_start),
                         col_end=max(0, col_end),
-                        help_msg=f"Invalid value for argument '{arg.name}': '{token_val}'. Expected type {arg.arg_type.__name__}.",
+                        help_msg=f"Invalid value for argument '{
+                            arg.name}': '{token_val}'. Expected type {
+                            arg.arg_type.__name__}.",
                     )
                     return CliErr(CliError.INVALID_ARGUMENT_TYPE, diag)
 
@@ -621,8 +636,11 @@ class Command:
                 break
         return current, args
 
-    def execute(self, argv: list[str] | None = None) -> Result[Any, CliError]:
-        """Parse arguments, resolve subcommand, instantiate schema, and execute it."""
+    def execute(
+        self, argv: list[str] | None = None
+    ) -> Result[Any, CliError]:
+        """Parse arguments, resolve subcommand, instantiate schema,
+        and execute it."""
         if argv is None:
             argv = sys.argv[1:]
 
@@ -852,7 +870,8 @@ def _find_best_string_match(
         (
             (
                 choice,
-                _levenshteinRecursive(target, choice, len(target), len(choice)),
+                _levenshteinRecursive(
+                    target, choice, len(target), len(choice)),
             )
             for choice in valid_choices
         ),

@@ -31,7 +31,7 @@ def run(args: MainArgs) -> Result[None, ConfigError]:
     match config_result:
         case Err() as err:
             return err
-        case Ok(_config):
+        case Ok():
             raise NotImplementedError
         case _:
             raise AssertionError("unreachable")

@@ -102,7 +102,8 @@ def test_missing_required_argument():
 
 
 def test_missing_argument_value():
-    """Flags requiring a value should fail if given trailing flag or hit EOL."""
+    """Flags requiring a value should fail if given trailing flag
+    or hit EOL."""
     parser = Parser.from_dataclass(RobustTestArgs)
 
     # Trailing value missing completely
@@ -120,7 +121,8 @@ def test_missing_argument_value():
 
 
 def test_unexpected_positional_argument():
-    """Unregistered raw strings should be handled as invalid positional args."""
+    """Unregistered raw strings should be handled as invalid
+    positional args."""
     parser = Parser.from_dataclass(RobustTestArgs)
     argv = ["--name", "test", "stray_positional_value"]
 
@@ -313,7 +315,8 @@ def test_nested_dataclasses():
     assert isinstance(res_err, Err)
     assert res_err.error == CliError.MISSING_REQUIRED_ARGUMENT
     assert_has_help_msg(
-        cast(Err[CliError], res_err), "Missing required arguments: --child.host"
+        cast(Err[CliError], res_err),
+        "Missing required arguments: --child.host",
     )
 
 
@@ -339,7 +342,10 @@ def test_command_subcommands():
 
     @dataclass
     class GreetCmd:
-        name: str = field(metadata={"positional": True, "help": "Name of user"})
+        name: str = field(
+            metadata={
+                "positional": True,
+                "help": "Name of user"})
         shout: bool = field(
             default=False, metadata={"help": "Shout the greeting"}
         )
@@ -348,7 +354,11 @@ def test_command_subcommands():
         msg = f"Hello {args.name}"
         return msg.upper() if args.shout else msg
 
-    greet_cmd = Command("greet", "Greet a user", schema=GreetCmd, run=run_greet)
+    greet_cmd = Command(
+        "greet",
+        "Greet a user",
+        schema=GreetCmd,
+        run=run_greet)
     root.add_command(greet_cmd)
 
     # Test executing a simple subcommand
