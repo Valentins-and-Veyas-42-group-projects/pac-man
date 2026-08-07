@@ -1,12 +1,15 @@
 # Project management
 
-Evidence of project management, per the subject's Chapter VIII
-requirement. Placeholders for now -- fill these in as the project
-progresses.
+Tracked via GitHub Issues and Projects on the
+[pac-man](https://github.com/Valentins-and-Veyas-42-group-projects/pac-man)
+repo, per the subject's Chapter VIII requirement, rather than
+duplicated as markdown docs here.
 
-- [timeline.md](timeline.md) -- planned schedule vs. actual progress
-- [risk-analysis.md](risk-analysis.md) -- risks and mitigations
-- [team-organization.md](team-organization.md) -- who did what, how
-  decisions and issues were handled
-- [acceptance-tests.md](acceptance-tests.md) -- features tested,
-  bugs found/fixed
+- [Issues](https://github.com/Valentins-and-Veyas-42-group-projects/pac-man/issues) --
+  scaffolded work items (config loading, maze adapter, highscore
+  store, game state machine, player/ghost logic, renderer, cheat
+  mode, packaging, this doc)
+- Project board: TODO -- link once created (needs the `project`
+  OAuth scope: `gh auth refresh -s project,read:project`)
+
+Team: vsack, sfurst.
