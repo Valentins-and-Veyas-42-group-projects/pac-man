@@ -6,26 +6,12 @@ per the subject: Main Menu > start game > Win or Lose > Enter name
 for highscore > Back to Main Menu.
 """
 
-from dataclasses import dataclass, field
-
-from .board import Board
-from .cheat import CheatFlags
-from ..config import Config
-from ..models import Ghost, Player, Screen
+from dataclasses import dataclass
 
 
 @dataclass
 class GameState:
     """The full mutable state of a running game session."""
-
-    config: Config
-    screen: Screen = Screen.MAIN_MENU
-    level_index: int = 0
-    level_time_remaining: float = 0.0
-    board: Board | None = None
-    player: Player | None = None
-    ghosts: list[Ghost] = field(default_factory=list)
-    cheat: CheatFlags = field(default_factory=CheatFlags)
 
 
 def start_game(state: GameState) -> GameState:

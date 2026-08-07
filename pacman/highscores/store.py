@@ -1,4 +1,4 @@
-"""SQLite-backed persistent highscore table.
+"""Persistent highscore table (SQLite-backed).
 
 Keeps the top 10 (name, score) rows. Player names are max 10
 characters, alphanumeric and spaces only; scores are non-negative
@@ -9,30 +9,16 @@ Result back instead of an exception bubbling up.
 
 import sqlite3
 from contextlib import contextmanager
-from enum import Enum, auto
+from enum import Enum
 from pathlib import Path
 from typing import Generator
 
 from ..errors import Diagnostic, Err, Result
 from ..models import HighscoreEntry
 
-TOP_N = 10
-
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS highscores (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    score INTEGER NOT NULL CHECK (score >= 0)
-);
-"""
-
 
 class HighscoreError(Enum):
     """Enumerate failure modes for the highscore store."""
-
-    DATABASE_UNAVAILABLE = auto()
-    INVALID_NAME = auto()
-    INVALID_SCORE = auto()
 
 
 def HighscoreErr(
@@ -60,9 +46,9 @@ class HighscoreStore:
         raise NotImplementedError
         yield  # pragma: no cover - keeps this a generator for mypy
 
-    def load_top(self, limit: int = TOP_N) -> Result[
-        list[HighscoreEntry], HighscoreError
-    ]:
+    def load_top(
+        self, limit: int
+    ) -> Result[list[HighscoreEntry], HighscoreError]:
         """Load the top `limit` highscores, ordered by score
         descending."""
         raise NotImplementedError

@@ -5,12 +5,8 @@ from dataclasses import dataclass
 
 @dataclass
 class CheatFlags:
-    """Toggleable cheats. All default to off."""
-
-    invincible: bool = False
-    ghosts_frozen: bool = False
-    extra_lives: int = 0
-    speed_multiplier: float = 1.0
+    """Toggleable cheats: invincibility, level skip, ghost freeze,
+    extra lives, increased speed, etc. (see subject VI.5)."""
 
     def skip_level(self) -> None:
         """Marker method for the "level skip" cheat; wired up by the

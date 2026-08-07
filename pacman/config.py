@@ -6,18 +6,15 @@ missing or invalid values to safe defaults instead of crashing, per
 the subject's "Faulty config handling" section.
 """
 
-from dataclasses import dataclass, field
-from enum import Enum, auto
+from dataclasses import dataclass
+from enum import Enum
 
 from .errors import Diagnostic, Err, Result
 
 
 class ConfigError(Enum):
-    """Enumerate failure modes encountered while loading the config file."""
-
-    FILE_NOT_FOUND = auto()
-    NOT_A_JSON_FILE = auto()
-    INVALID_JSON = auto()
+    """Enumerate failure modes encountered while loading the config
+    file."""
 
 
 def ConfigErr(
@@ -36,26 +33,13 @@ def ConfigErr(
 class LevelConfig:
     """Width/height for a single maze level."""
 
-    width: int = 21
-    height: int = 21
-
 
 @dataclass
 class Config:
-    """Game configuration, with defaults matching the subject's
-    suggested keys."""
-
-    highscore_filename: str = "highscores.json"
-    levels: list[LevelConfig] = field(
-        default_factory=lambda: [LevelConfig()]
-    )
-    lives: int = 3
-    pacgum: int = 42
-    points_per_pacgum: int = 10
-    points_per_super_pacgum: int = 50
-    points_per_ghost: int = 200
-    seed: int = 42
-    level_max_time: int = 90
+    """Game configuration, keys per the subject's suggested list
+    (highscore_filename, levels, lives, pacgum, points_per_pacgum,
+    points_per_super_pacgum, points_per_ghost, seed,
+    level_max_time)."""
 
 
 def strip_json_comments(raw_text: str) -> str:
@@ -89,4 +73,4 @@ def load_config(path: str) -> Result[Config, ConfigError]:
 
 def default_config() -> Config:
     """Return a `Config` populated entirely with safe defaults."""
-    return Config()
+    raise NotImplementedError

@@ -2,17 +2,12 @@
 
 from dataclasses import dataclass
 
-from ..maze_loader import Maze
 from ..models import Direction, Position
 
 
 @dataclass
 class Board:
     """Wraps a generated `Maze` and tracks which pacgums remain."""
-
-    maze: Maze
-    remaining_pacgums: set[Position]
-    remaining_super_pacgums: set[Position]
 
     def is_wall(self, position: Position, direction: Direction) -> bool:
         """Return whether there is a wall in `direction` from

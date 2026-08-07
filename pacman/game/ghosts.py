@@ -7,7 +7,7 @@ etc.) is left open by the subject.
 """
 
 from .board import Board
-from ..models import Ghost, GhostMode, Player
+from ..models import Ghost, Player
 
 
 def update_ghost(
@@ -42,9 +42,4 @@ def eat_ghost(ghost: Ghost) -> Ghost:
 def respawn_ghost(ghost: Ghost) -> Ghost:
     """Return the ghost restored to `CHASING` mode at its home
     corner."""
-    return Ghost(
-        name=ghost.name,
-        position=ghost.home_corner,
-        home_corner=ghost.home_corner,
-        mode=GhostMode.CHASING,
-    )
+    raise NotImplementedError
