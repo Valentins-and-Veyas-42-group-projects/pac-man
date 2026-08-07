@@ -343,9 +343,8 @@ def test_command_subcommands():
     @dataclass
     class GreetCmd:
         name: str = field(
-            metadata={
-                "positional": True,
-                "help": "Name of user"})
+            metadata={"positional": True, "help": "Name of user"}
+        )
         shout: bool = field(
             default=False, metadata={"help": "Shout the greeting"}
         )
@@ -355,10 +354,8 @@ def test_command_subcommands():
         return msg.upper() if args.shout else msg
 
     greet_cmd = Command(
-        "greet",
-        "Greet a user",
-        schema=GreetCmd,
-        run=run_greet)
+        "greet", "Greet a user", schema=GreetCmd, run=run_greet
+    )
     root.add_command(greet_cmd)
 
     # Test executing a simple subcommand

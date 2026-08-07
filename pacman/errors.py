@@ -1,16 +1,20 @@
-"""Shared result and error types for Python CLI and parsing
-utilities."""
+"""Shared result and error types for Python CLI and parsing utilities."""
 
+from __future__ import annotations
+
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum, auto
+from functools import wraps
 from typing import (
     Any,
-    Callable,
     ClassVar,
     Generic,
     NoReturn,
+    ParamSpec,
     TypeAlias,
     TypeVar,
+    cast,
 )
 
 
@@ -26,6 +30,8 @@ class CliError(Enum):
 
 E = TypeVar("E", bound=Enum)
 T = TypeVar("T")
+R = TypeVar("R")
+P = ParamSpec("P")
 
 
 @dataclass(frozen=True)
@@ -44,18 +50,26 @@ class BubbleUpError(Exception):
     """Internal exception to bubble Err results up to a catch_bubble
     decorator."""
 
-    def __init__(self, err_payload: "Err[Any]"):
+    def __init__(self, err_payload: Err[Any]):
+        """Store the error being propagated."""
         super().__init__(f"BubbleUpError: {err_payload.error}")
         self.err_payload = err_payload
 
 
-def catch_bubble(func: Callable[..., Any]) -> Callable[..., Any]:
-    """Decorator to catch bubbled errors and return them cleanly as an Err."""
-    def wrapper(*args: Any, **kwargs: Any) -> Any:
+def catch_bubble(func: Callable[P, R]) -> Callable[P, R]:
+    """Decorate a function to convert bubbled errors into return values.
+
+    Returns:
+        A wrapper that catches and returns bubbled error payloads.
+    """
+
+    @wraps(func)
+    def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
         try:
             return func(*args, **kwargs)
-        except BubbleUpError as b:
-            return b.err_payload
+        except BubbleUpError as error:
+            return cast(R, error.err_payload)
+
     return wrapper
 
 
@@ -86,7 +100,11 @@ class Err(Generic[E]):
     namespace: str | None = None
 
     def unwrap(self) -> NoReturn:
-        """Panics and prints the diagnostic error context."""
+        """Print diagnostic context and reject unwrapping an error.
+
+        Raises:
+            ValueError: Always, because an error has no success value.
+        """
         self.print_diagnostic()
         raise ValueError(
             f"Called `Result::unwrap()` on an `Err` value: {self.error.name}"
@@ -145,8 +163,103 @@ class Err(Generic[E]):
 
     @property
     def q(self) -> NoReturn:
-        """Rust-like ? operator. Raises BubbleUpError to bubble the Err up."""
+        """Propagate this error to a ``catch_bubble`` wrapper.
+
+        Raises:
+            BubbleUpError: Always, carrying this error result.
+        """
         raise BubbleUpError(self)
 
 
 Result: TypeAlias = Ok[T] | Err[E]
+
+
+class BubbleUpNothing(Exception):
+    """Internal exception used to bubble Nothing through a decorator."""
+
+    nothing: Nothing
+
+    def __init__(self, nothing: Nothing) -> None:
+        """Store the absent option being propagated."""
+        super().__init__("Attempted to bubble up Nothing")
+        self.nothing = nothing
+
+
+@dataclass(frozen=True)
+class Some(Generic[T]):
+    """Wrap a present optional value."""
+
+    value: T
+
+    def unwrap(self) -> T:
+        """Return the contained value."""
+        return self.value
+
+    def unwrap_or(self, _default: T) -> T:
+        """Return the contained value."""
+        return self.value
+
+    def expect(self, _message: str) -> T:
+        """Return the contained value."""
+        return self.value
+
+    @property
+    def q(self) -> T:
+        """The contained value used for propagation."""
+        return self.value
+
+
+@dataclass(frozen=True)
+class Nothing:
+    """Represent the absence of a value."""
+
+    def unwrap(self) -> NoReturn:
+        """Reject unwrapping an absent option.
+
+        Raises:
+            ValueError: Always, because no value is present.
+        """
+        raise ValueError("Called `Option::unwrap()` on a `Nothing` value")
+
+    def unwrap_or(self, default: T) -> T:
+        """Return the provided default value."""
+        return default
+
+    def expect(self, message: str) -> NoReturn:
+        """Reject absence with a caller-provided explanation.
+
+        Raises:
+            ValueError: Always, using ``message``.
+        """
+        raise ValueError(message)
+
+    @property
+    def q(self) -> NoReturn:
+        """Propagate absence to a ``catch_nothing`` wrapper.
+
+        Raises:
+            BubbleUpNothing: Always, carrying this absent option.
+        """
+        raise BubbleUpNothing(self)
+
+
+Option: TypeAlias = Some[T] | Nothing
+
+
+def catch_nothing(
+    func: Callable[P, Option[T]],
+) -> Callable[P, Option[T]]:
+    """Convert bubbled Nothing values into returned Nothing values.
+
+    Returns:
+        A wrapper that catches propagated absence.
+    """
+
+    @wraps(func)
+    def wrapper(*args: P.args, **kwargs: P.kwargs) -> Option[T]:
+        try:
+            return func(*args, **kwargs)
+        except BubbleUpNothing as bubbled:
+            return bubbled.nothing
+
+    return wrapper

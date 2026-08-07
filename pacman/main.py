@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 from .cli_fw import Command, arg
 from .config import ConfigError, load_config
-from .errors import Err, Ok, Result
+from .errors import Err, Ok, Result, catch_bubble
 
 
 @dataclass
@@ -18,6 +18,7 @@ class MainArgs:
     )
 
 
+@catch_bubble
 def run(args: MainArgs) -> Result[None, ConfigError]:
     """Load the config and run the game loop.
 
@@ -27,14 +28,8 @@ def run(args: MainArgs) -> Result[None, ConfigError]:
     Returns:
         Ok(None) on a clean exit, Err on an unrecoverable failure.
     """
-    config_result = load_config(args.config_path)
-    match config_result:
-        case Err() as err:
-            return err
-        case Ok():
-            raise NotImplementedError
-        case _:
-            raise AssertionError("unreachable")
+    _ = load_config(args.config_path).q
+    raise NotImplementedError
 
 
 def main() -> None:
