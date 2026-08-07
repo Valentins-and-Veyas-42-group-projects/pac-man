@@ -9,7 +9,6 @@ renderer is here.
 import pygame
 
 from ..game.state import GameState
-from ..models import Screen
 
 
 class Renderer:
