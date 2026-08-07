@@ -1,0 +1,36 @@
+[project]
+name = "pacman"
+version = "0.1.0"
+description = "A Pac-Man recreation built for the 42 curriculum."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = ["pygame>=2.5"]
+
+[project.optional-dependencies]
+dev = ["flake8", "mypy", "pytest"]
+
+[project.scripts]
+pacman = "pacman.main:main"
+
+[build-system]
+requires = ["setuptools>=80"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["pacman*"]
+exclude = ["tests*"]
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_ignores = true
+ignore_missing_imports = true
+disallow_untyped_defs = true
+check_untyped_defs = true
+
+[tool.flake8]
+max-line-length = 79
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = "."
