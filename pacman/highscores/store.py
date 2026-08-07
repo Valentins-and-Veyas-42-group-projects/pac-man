@@ -11,7 +11,7 @@ import sqlite3
 from contextlib import contextmanager
 from enum import Enum, auto
 from pathlib import Path
-from typing import Iterator
+from typing import Generator
 
 from ..errors import Diagnostic, Err, Result
 from ..models import HighscoreEntry
@@ -54,7 +54,7 @@ class HighscoreStore:
         self.db_path = Path(db_path)
 
     @contextmanager
-    def _connect(self) -> Iterator[sqlite3.Connection]:
+    def _connect(self) -> Generator[sqlite3.Connection]:
         """Open a connection to the highscore database, ensuring the
         schema exists and the connection is closed afterward."""
         raise NotImplementedError
