@@ -6,7 +6,7 @@ requires-python = ">=3.10"
 dependencies = ["pygame>=2.5"]
 
 [dependency-groups]
-dev = ["flake8", "mypy", "pytest"]
+dev = ["flake8", "mypy", "pytest", "ruff"]
 
 [project.scripts]
 pacman = "pacman.main:main"
@@ -29,6 +29,27 @@ check_untyped_defs = true
 
 [tool.flake8]
 max-line-length = 79
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+preview = true
+src = ["pacman"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "D", "DOC"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["D", "DOC"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+docstring-code-format = true
+line-ending = "lf"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
