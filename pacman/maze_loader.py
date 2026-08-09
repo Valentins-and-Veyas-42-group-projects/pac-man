@@ -10,7 +10,7 @@ Swap in the actual import once a package is assigned for peer review.
 from dataclasses import dataclass
 from enum import Enum
 
-from .errors import Diagnostic, Err, Result
+from typed_errs import Diagnostic, Err, Result
 
 
 class MazeError(Enum):

@@ -1,12 +1,12 @@
 """Wires config loading, the game engine, and the renderer together."""
 
 import sys
-
 from dataclasses import dataclass
 
-from .cli_fw import Command, arg
+from cli_fw import Command, arg
+from typed_errs import Err, Ok, Result, catch_bubble
+
 from .config import ConfigError, load_config
-from .errors import Err, Ok, Result, catch_bubble
 
 
 @dataclass

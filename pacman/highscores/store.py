@@ -8,12 +8,13 @@ Result back instead of an exception bubbling up.
 """
 
 import sqlite3
+from collections.abc import Generator
 from contextlib import contextmanager
 from enum import Enum
 from pathlib import Path
-from typing import Generator
 
-from ..errors import Diagnostic, Err, Result
+from typed_errs import Diagnostic, Err, Result
+
 from ..models import HighscoreEntry
 
 

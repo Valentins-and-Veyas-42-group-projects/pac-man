@@ -9,7 +9,7 @@ the subject's "Faulty config handling" section.
 from dataclasses import dataclass
 from enum import Enum
 
-from .errors import Diagnostic, Err, Result
+from typed_errs import Diagnostic, Err, Result
 
 
 class ConfigError(Enum):

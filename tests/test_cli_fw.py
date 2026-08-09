@@ -3,8 +3,8 @@
 from dataclasses import dataclass, field
 from typing import Any, cast
 
-from pacman.cli_fw import Action, Command, Parser, arg
-from pacman.errors import CliError, Err, Ok
+from cli_fw import Action, CliError, Command, Parser, arg
+from typed_errs import Err, Ok
 
 
 @dataclass

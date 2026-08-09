@@ -11,8 +11,8 @@ source location, context, and recovery guidance.
 
 from collections.abc import Callable
 
-from pacman.errors import (
-    CliError,
+from cli_fw import CliError
+from typed_errs import (
     Diagnostic,
     Err,
     Nothing,
