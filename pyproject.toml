@@ -4,12 +4,13 @@ version = "0.1.0"
 description = "A Pac-Man recreation built for the 42 curriculum."
 requires-python = ">=3.10"
 dependencies = [
-    "cli-fw>=0.0.3",
+    "cli-fw>=0.0.4",
     "fsnotify-python>=0.0.2",
     "pygame>=2.5",
-    "sqlite-callback-store>=0.0.3",
+    "python-crimes>=0.0.5,<1",
+    "sqlite-callback-store>=0.0.4",
     "typed-errs>=0.0.4",
-    "typed-file-io>=0.0.3",
+    "typed-file-io>=0.0.4",
 ]
 
 [dependency-groups]

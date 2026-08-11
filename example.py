@@ -1,299 +1,259 @@
-"""Made by Codex to demonstrate every Result and Option case.
+"""Pac-Man teammate guide: typed-errs and python-crimes together.
 
-Use ``Option[T]`` when a value may normally be absent and the caller only
-needs to know whether it exists. For example, searching an empty collection
-can return ``Nothing`` without anything having gone wrong.
+Run this file with ``uv run python example.py``. It is deliberately independent
+from the unfinished game modules: copy the small patterns into a real feature,
+then replace the fake inputs with config, board, pygame, or storage values.
 
-Use ``Result[T, E]`` when an operation can fail and the caller needs to know
-why. Its ``Err`` carries an error category and can include a diagnostic with
-source location, context, and recovery guidance.
+Rule of thumb:
+
+* ``Result[T, E]`` means an operation may fail and the caller needs its reason.
+* ``Option[T]`` means absence is normal and has no error to report.
+* ``@pipe`` makes simple one-input transformations read left to right.
+* ``defer`` / ``@deferred`` own LIFO cleanup for a scope.
+* ``match_`` chooses the first fitting shape, type, or typed-errs variant.
 """
 
-from collections.abc import Callable
+from __future__ import annotations
+
+from dataclasses import dataclass
 
 from cli_fw import CliError
-from typed_errs import (
-    Diagnostic,
-    Err,
-    Nothing,
-    Ok,
-    Option,
-    Result,
-    Some,
-    catch_bubble,
-    catch_nothing,
+from python_crimes import (
+    REST,
+    DeferStack,
+    attr,
+    capture,
+    defer,
+    deferred,
+    ge,
+    gt,
+    match_,
+    matcher,
+    pipe,
+    terminate,
+    type_,
 )
+from typed_errs import Err, Nothing, Ok, Option, Result, Some, catch_bubble
 
 
-def show(label: str, value: object) -> None:
-    """Print one example result with a readable label.
+def heading(title: str) -> None:
+    """Print a readable section boundary for the walkthrough."""
+    print(f"\n=== {title} ===")
 
-    Args:
-        label: Name of the operation being demonstrated.
-        value: Value returned by the operation.
+
+# Pipes are for a transformation where each step consumes exactly the last
+# step's value. Use ordinary function calls when the data flow is not linear.
+@pipe
+def trim_command(raw: str) -> str:
+    """Normalize console input before command dispatch.
+
+    Returns:
+        A lowercase command without surrounding whitespace.
     """
-    print(f"{label:28} -> {value!r}")
+    return raw.strip().lower()
 
 
-def show_raised(label: str, operation: Callable[[], object]) -> None:
-    """Run a deliberately failing operation and display its exception.
+@pipe
+def command_words(command: str) -> list[str]:
+    """Turn one normalized command into tokens.
 
-    Args:
-        label: Name of the operation being demonstrated.
-        operation: Zero-argument callable expected to raise ``ValueError``.
+    Returns:
+        Whitespace-separated command tokens.
     """
-    try:
-        operation()
-    except ValueError as error:
-        show(label, f"ValueError: {error}")
+    return command.split()
+
+
+def demonstrate_pipes() -> None:
+    """Show the left-to-right pipeline syntax."""
+    heading("Pipes: one value through simple transformations")
+    words = "  PAUSE   NOW  " @ trim_command @ command_words
+    print(words)  # ['pause', 'now']
+
+
+# Option is for expected absence: a board may simply not contain a power
+# pellet.
+def power_pellet_at(tile: tuple[int, int]) -> Option[str]:
+    """Return an optional board item; no pellet is not an error."""
+    return Some("power pellet") if tile == (3, 4) else Nothing()
+
+
+# Result is for failure with a reason: bad score input must be reported to the
+# caller instead of being silently confused with an absent value.
+def parse_score(raw: str) -> Result[int, CliError]:
+    """Parse a positive score-like value from a fake input source.
+
+    Returns:
+        Ok with the score, or Err when the input is not a non-negative integer.
+    """
+    if not raw.isdigit():
+        return Err(CliError.INVALID_ARGUMENT_TYPE)
+    score = int(raw)
+    return Ok(score) if score >= 0 else Err(CliError.INVALID_ARGUMENT_TYPE)
+
+
+def demonstrate_result_and_option() -> None:
+    """Show conventional branching before using matcher sugar."""
+    heading("Result and Option: failure versus normal absence")
+    pellet = power_pellet_at((0, 0))
+    score = parse_score("1200")
+
+    if isinstance(pellet, Some):
+        print(f"Board contains {pellet.value}")
+    else:
+        print("No power pellet here: this is normal")
+
+    if isinstance(score, Ok):
+        print(f"Score loaded: {score.value}")
+    else:
+        print(f"Score input failed: {score.error.name}")
+
+
+def demonstrate_defer() -> None:
+    """Show explicit scope cleanup, useful around callback-style resources."""
+    heading("defer: LIFO cleanup owned by this scope")
+    events: list[str] = []
+    with defer() as cleanup:
+        cleanup << (lambda: events.append("close replay file"))
+        cleanup << (lambda: events.append("release audio channel"))
+        events.append("play level")
+    print(events)  # cleanup runs in reverse registration order.
 
 
 @catch_bubble
-def divide_then_double(dividend: int, divisor: int) -> Result[int, CliError]:
-    """Compose two Results and stop automatically if either one is Err.
-
-    Args:
-        dividend: Number to divide.
-        divisor: Number to divide by.
-
-    Returns:
-        The doubled quotient, or an error when division is impossible.
-    """
-    first_result: Result[int, CliError]
-    if divisor == 0:
-        first_result = Err(CliError.INVALID_ARGUMENT_TYPE)
-    else:
-        first_result = Ok(dividend // divisor)
-
-    # `.q` extracts an Ok value. On Err it jumps to @catch_bubble, so the
-    # second operation only runs when the first operation succeeded.
-    quotient = first_result.q
-    second_result: Result[int, CliError] = Ok(quotient * 2)
-    return Ok(second_result.q)
-
-
-@catch_nothing
-def first_character(text: str) -> Option[str]:
-    """Propagate an absent optional character with ``Option.q``.
-
-    Args:
-        text: Text whose first character should be returned.
+@deferred
+def load_player_name(
+    cleanup: DeferStack,
+    found: bool,
+) -> Result[str, CliError]:
+    """Use @deferred with .q; cleanup runs even when Err bubbles out.
 
     Returns:
-        Some containing the first character, or Nothing for empty text.
+        Ok with the player name, or Err when it could not be loaded.
     """
-    possible_character: Option[str] = Some(text[0]) if text else Nothing()
-    return Some(possible_character.q)
+    events: list[str] = []
+
+    def writer(chunk: str | None) -> None:
+        if chunk is None:
+            print("writer closed by deferred cleanup")
+        else:
+            events.append(chunk)
+
+    cleanup << terminate(writer)
+    player_name = (
+        Ok("Pac-Man") if found else Err(CliError.MISSING_ARGUMENT_VALUE)
+    )
+    name: str = player_name.q
+    writer(f"loaded {name}")
+    print(events)
+    return Ok(name)
 
 
-def explain_with_isinstance(result: Result[int, CliError]) -> str:
-    """Handle a Result with a normal branch and explicit type narrowing.
+def demonstrate_deferred() -> None:
+    """Show decorator-style cleanup for a whole helper function."""
+    heading("@deferred: cleanup without another indentation level")
+    print(load_player_name(True))
+    print(load_player_name(False))
 
-    Args:
-        result: Result to inspect.
+
+@dataclass(frozen=True)
+class Ghost:
+    """Small event payload for attribute-pattern examples."""
+
+    name: str
+    frightened: bool
+    speed: int
+
+
+Event = dict[str, object]
+
+
+def demonstrate_match_with_block(event: Event) -> str:
+    """Use a with-block when a decision has several visually distinct arms.
 
     Returns:
-        A human-readable description of the Result.
+        The label emitted by the first matching event pattern.
     """
-    # Use isinstance when you need custom logic in both branches or when a
-    # regular if statement is easier to read than structural pattern matching.
-    if isinstance(result, Ok):
-        return f"isinstance found the value {result.value}"
-    return f"isinstance found the error {result.error.name}"
+    with match_(event) as cases:
+        # Mapping/list patterns are recursive. capture() determines handler
+        # arguments in traversal order.
+        cases.case({"kind": "pellet", "points": capture(int) & gt(0)}) << (
+            lambda points: f"add {points} points"
+        )
+        cases.case({"kind": "input", "keys": ["up", str, REST]}) << "move up"
+        cases.case(
+            {
+                "kind": "ghost",
+                "ghost": (
+                    type_(Ghost)
+                    & attr("name", capture(str))
+                    & attr("frightened", True)
+                ),
+            }
+        ) << (lambda name: f"ghost {name}: run")
+        cases.default << "ignore event"
+    return cases.value
 
 
-def explain_with_match(result: Result[int, CliError]) -> str:
-    """Handle a Result by destructuring its variant with match.
-
-    Args:
-        result: Result to inspect.
-
-    Returns:
-        A human-readable description of the Result.
-    """
-    # Use match when variants contain fields you want to unpack, or when the
-    # surrounding code already models several distinct cases.
-    match result:
-        case Ok(value):
-            return f"match unpacked the value {value}"
-        case Err(error):
-            return f"match unpacked the error {error.name}"
-
-
-def demonstrate_ok() -> None:
-    """Show every operation on a successful Result."""
-    print("\n=== Ok: a computation succeeded ===")
-    result = Ok(21)
-    fallback = Err(CliError.INVALID_ARGUMENT_TYPE)
-
-    show("value", result.value)
-    show("is_ok()", result.is_ok())
-    show("is_err()", result.is_err())
-    show("is_ok_and()", result.is_ok_and(lambda value: value > 10))
-
-    # Error predicates and fallback functions are skipped because Ok already
-    # has a usable value. This avoids unnecessary or unsafe work.
-    show("is_err_and()", result.is_err_and(lambda _error: True))
-    show("unwrap()", result.unwrap())
-    show("expect()", result.expect("ignored for Ok"))
-    show_raised("unwrap_err()", result.unwrap_err)
-    show_raised("expect_err()", lambda: result.expect_err("wanted Err"))
-    show("unwrap_or()", result.unwrap_or(0))
-    show("unwrap_or_else()", result.unwrap_or_else(lambda _error: 0))
-
-    # `map` changes a success value, while `map_err` leaves an Ok untouched.
-    show("map()", result.map(lambda value: value * 2))
-    show(
-        "map_err()",
-        result.map_err(lambda _error: CliError.UNKNOWN_ARGUMENT),
+def demonstrate_match_styles() -> None:
+    """Show block matching, fluent matching, and typed-errs arms."""
+    heading("match_: shapes, guards, captures, Result, and Option")
+    print(demonstrate_match_with_block({"kind": "pellet", "points": 50}))
+    print(
+        demonstrate_match_with_block({"kind": "input", "keys": ["up", "held"]})
     )
 
-    inspected: list[int] = []
-    show("inspect()", result.inspect(inspected.append))
-    show("inspect side effect", inspected)
-    show("inspect_err()", result.inspect_err(lambda error: print(error)))
-
-    # `and` continues with the next Result; `or` keeps this successful one.
-    show("and_()", result.and_(fallback))
-    show("and_then()", result.and_then(lambda value: Ok(value + 1)))
-    show("or_()", result.or_(fallback))
-    show("or_else()", result.or_else(lambda _error: fallback))
-    show("ok()", result.ok())
-    show("err()", result.err())
-    show("iter()", list(result.iter()))
-    show("q", result.q)
-
-
-def demonstrate_which_type_to_use() -> None:
-    """Explain when to choose Result or Option."""
-    print("\n=== Choosing Result or Option ===")
-    print("Option: absence is expected; Some(value) or Nothing() is enough.")
-    print("Result: an operation can fail and the caller needs an Err reason.")
-
-    # Looking for a bonus fruit is optional: no fruit is a normal game state.
-    bonus_fruit: Option[str] = Nothing()
-    show("optional bonus fruit", bonus_fruit)
-
-    # Parsing configuration can fail for different reasons, so preserving the
-    # error lets the caller report or recover from the specific problem.
-    parsed_lives: Result[int, CliError] = Err(CliError.INVALID_ARGUMENT_TYPE)
-    show("configuration parsing", parsed_lives)
-
-
-def demonstrate_err() -> None:
-    """Show failure behavior and composition of two Results."""
-    print("\n=== Err: a computation failed ===")
-    error = Err(CliError.INVALID_ARGUMENT_TYPE)
-
-    show("error.error", error.error)
-    show_raised("unwrap()", error.unwrap)
-
-    # Use `.q` when the current function also returns Result and should stop at
-    # the first Err. The decorator catches that propagation at the boundary.
-    show("two Results (success)", divide_then_double(12, 3))
-    show("two Results (failure)", divide_then_double(12, 0))
-
-    # Use isinstance for a familiar if/else and match when destructuring makes
-    # the cases clearer. Both styles explicitly handle Ok and Err here.
-    show("isinstance with Ok", explain_with_isinstance(Ok(7)))
-    show("isinstance with Err", explain_with_isinstance(error))
-    show("match with Ok", explain_with_match(Ok(7)))
-    show("match with Err", explain_with_match(error))
-
-    print("\n=== Diagnostic: explain where and why an Err occurred ===")
-    diagnostic_error = Err(
-        CliError.INVALID_ARGUMENT_TYPE,
-        diagnostic=Diagnostic(
-            filename="config.example.json",
-            line_num=3,
-            line_text='  "lives": "three"',
-            col_start=11,
-            col_end=18,
-            help_msg="Use an integer, for example: 3",
-        ),
-        context_msg="The lives setting must be an integer",
-        namespace="config",
+    # Fluent matching uses the exact same engine. Prefer it for a compact
+    # return expression; use the with form above for a longer decision tree.
+    label = (
+        match_("level:3")
+        .case(type_(int))
+        .when(ge(1))
+        .then(lambda level: f"level {level}")
+        .regex(r"level:(\d+)")
+        .then(lambda level: f"level {level}")
+        .default.then("invalid level")
+        .value
     )
-    # Call print_diagnostic at a user-facing boundary. Internal helpers should
-    # normally return/propagate Err instead of printing the same error twice.
-    diagnostic_error.print_diagnostic()
+    print(label)
+
+    # typed-errs variants are first-class pattern arms. Handlers receive the
+    # inner payload, not the Ok/Err/Some wrapper.
+    with match_(parse_score("not a number")) as cases:
+        cases.ok << (lambda value: f"score is {value}")
+        cases.err << (lambda error: f"show input error: {error.name}")
+    print(cases.value)
+
+    with match_(power_pellet_at((3, 4))) as cases:
+        cases.some << (lambda item: f"eat {item}")
+        cases.nothing << "keep moving"
+    print(cases.value)
 
 
-def demonstrate_some() -> None:
-    """Show every operation on a present Option."""
-    print("\n=== Some: an optional value is present ===")
-    option = Some(21)
-    absent = Nothing()
-
-    show("value", option.value)
-    show("is_some()", option.is_some())
-    show("is_none()", option.is_none())
-    show("is_some_and()", option.is_some_and(lambda value: value > 10))
-    show("unwrap()", option.unwrap())
-    show("expect()", option.expect("ignored for Some"))
-    show("unwrap_or()", option.unwrap_or(0))
-    show("unwrap_or_else()", option.unwrap_or_else(lambda: 0))
-    show("map()", option.map(lambda value: value * 2))
-    show("inspect()", option.inspect(lambda value: show("inspected", value)))
-    show("filter(true)", option.filter(lambda value: value > 10))
-    show("filter(false)", option.filter(lambda value: value > 100))
-    show("and_()", option.and_(Some("next")))
-    show("and_then()", option.and_then(lambda value: Some(value + 1)))
-    show("or_()", option.or_(Some(99)))
-    show("or_else()", option.or_else(lambda: Some(99)))
-    show("xor(Some)", option.xor(Some(99)))
-    show("xor(Nothing)", option.xor(absent))
-    show("ok_or()", option.ok_or(CliError.MISSING_ARGUMENT_VALUE))
-    show(
-        "ok_or_else()",
-        option.ok_or_else(lambda: CliError.MISSING_ARGUMENT_VALUE),
+def demonstrate_reusable_dispatch() -> None:
+    """Build once, then use the same classification for every score."""
+    heading("matcher(): reusable dispatch for repeated classifications")
+    classify_score = (
+        matcher()
+        .case(0)
+        .then("new game")
+        .case(type_(int) & ge(10_000))
+        .then("extra-life territory")
+        .case(type_(int) & gt(0))
+        .then("keep playing")
+        .default.then("invalid score")
     )
-    show("iter()", list(option.iter()))
-    show("q", option.q)
-
-
-def demonstrate_nothing() -> None:
-    """Show every operation on an absent Option."""
-    print("\n=== Nothing: an optional value is absent ===")
-    option = Nothing()
-
-    show("is_some()", option.is_some())
-    show("is_none()", option.is_none())
-    show("is_some_and()", option.is_some_and(lambda _value: True))
-    show_raised("unwrap()", option.unwrap)
-    show_raised("expect()", lambda: option.expect("a value was required"))
-
-    # Unlike Some, Nothing uses fallbacks and skips value transformations.
-    show("unwrap_or()", option.unwrap_or(0))
-    show("unwrap_or_else()", option.unwrap_or_else(lambda: 42))
-    show("map()", option.map(lambda value: value))
-    show("inspect()", option.inspect(lambda value: print(value)))
-    show("filter()", option.filter(lambda value: bool(value)))
-    show("and_()", option.and_(Some("next")))
-    show("and_then()", option.and_then(lambda value: Some(value)))
-    show("or_()", option.or_(Some(99)))
-    show("or_else()", option.or_else(lambda: Some(99)))
-    show("xor()", option.xor(Some(99)))
-    show("ok_or()", option.ok_or(CliError.MISSING_ARGUMENT_VALUE))
-    show(
-        "ok_or_else()",
-        option.ok_or_else(lambda: CliError.MISSING_ARGUMENT_VALUE),
-    )
-    show("iter()", list(option.iter()))
-
-    # Calling q directly would raise BubbleUpNothing. The decorated helper
-    # turns that internal control flow back into a normal Nothing value.
-    show("q through decorator", first_character(""))
-    show("q with Some", first_character("Pac-Man"))
+    for score in (0, 250, 12_000, "oops"):
+        print(f"{score!r} -> {score @ classify_score}")
 
 
 def main() -> None:
-    """Run the complete Result and Option onboarding tour."""
-    demonstrate_which_type_to_use()
-    demonstrate_ok()
-    demonstrate_err()
-    demonstrate_some()
-    demonstrate_nothing()
+    """Run the teammate-oriented tour."""
+    demonstrate_pipes()
+    demonstrate_result_and_option()
+    demonstrate_defer()
+    demonstrate_deferred()
+    demonstrate_match_styles()
+    demonstrate_reusable_dispatch()
 
 
 if __name__ == "__main__":
