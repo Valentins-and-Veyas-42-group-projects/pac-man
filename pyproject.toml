@@ -9,9 +9,9 @@ dependencies = [
     "pygame>=2.5",
     "python-crimes>=0.0.5,<1",
     "sqlite-callback-store>=0.0.4",
-    "typed-errs @ git+https://github.com/0xveya/typed-errs.git@0769b16ef5980dc142a8f55e9322cffbe603538c",
+    "typed-errs>=0.0.4",
     "typed-file-io>=0.0.4",
-    "typed-concurrency @ git+https://github.com/0xveya/typed-concurrency.git@db2ab8caa024e968e6ea13a46e4e4c4b4754499d",
+    "typed-concurrency>=0,<1",
 ]
 
 [dependency-groups]

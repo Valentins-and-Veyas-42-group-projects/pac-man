@@ -351,8 +351,8 @@ requires-dist = [
     { name = "pygame", specifier = ">=2.5" },
     { name = "python-crimes", specifier = ">=0.0.5,<1" },
     { name = "sqlite-callback-store", specifier = ">=0.0.4" },
-    { name = "typed-concurrency", git = "https://github.com/0xveya/typed-concurrency.git?rev=db2ab8caa024e968e6ea13a46e4e4c4b4754499d" },
-    { name = "typed-errs", git = "https://github.com/0xveya/typed-errs.git?rev=0769b16ef5980dc142a8f55e9322cffbe603538c" },
+    { name = "typed-concurrency", specifier = ">=0,<1" },
+    { name = "typed-errs", specifier = ">=0.0.4" },
     { name = "typed-file-io", specifier = ">=0.0.4" },
 ]
 
@@ -505,16 +505,24 @@ wheels = [
 
 [[package]]
 name = "typed-concurrency"
-version = "0.0.0"
-source = { git = "https://github.com/0xveya/typed-concurrency.git?rev=db2ab8caa024e968e6ea13a46e4e4c4b4754499d#db2ab8caa024e968e6ea13a46e4e4c4b4754499d" }
+version = "0.0.1"
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "typed-errs" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/a0/ea/29704bfe348b338b6b18104e88a1e97e7cc35f08e25c4ebd984e01e58b4a/typed_concurrency-0.0.1.tar.gz", hash = "sha256:71f4ac09570310b3105a62c1ae090f8e564cb2886ea9228e1bc29ef2180ede0a", size = 7285, upload-time = "2026-08-11T22:57:17.159Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/32/79/504ca2b084eb4393b095176d47879c1edf316877eaa7eb066388e47f8226/typed_concurrency-0.0.1-py3-none-any.whl", hash = "sha256:3f8ad20a52dc8f81a2f269ea6f8ca484a5084e06f646e6d176a8e79961408cb4", size = 7230, upload-time = "2026-08-11T22:57:15.967Z" },
 ]
 
 [[package]]
 name = "typed-errs"
-version = "0.0.0"
-source = { git = "https://github.com/0xveya/typed-errs#0769b16ef5980dc142a8f55e9322cffbe603538c" }
+version = "0.0.4"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/b6/51/bc19ad946077f83d497a06c8170b6f469573feda3b6b433b56d30fef83d9/typed_errs-0.0.4.tar.gz", hash = "sha256:fd65ec3f455e1eee2cad51ce4a65b6c9e7920ac4bfab4368e057ac21e6b541fe", size = 9250, upload-time = "2026-08-09T17:26:03.026Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a4/5b/55391c35daa08c81c4c75ef7e05f863af613bb39eb14fdb31e71cf038495/typed_errs-0.0.4-py3-none-any.whl", hash = "sha256:bf82e35a8a580f48e847c2abe192bdabdcc8146f25e40e404840768827698f72", size = 7654, upload-time = "2026-08-09T17:26:01.999Z" },
+]
 
 [[package]]
 name = "typed-file-io"
