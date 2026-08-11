@@ -2,15 +2,16 @@
 name = "pacman"
 version = "0.1.0"
 description = "A Pac-Man recreation built for the 42 curriculum."
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
     "cli-fw>=0.0.4",
     "fsnotify-python>=0.0.2",
     "pygame>=2.5",
     "python-crimes>=0.0.5,<1",
     "sqlite-callback-store>=0.0.4",
-    "typed-errs>=0.0.4",
+    "typed-errs @ git+https://github.com/0xveya/typed-errs.git@0769b16ef5980dc142a8f55e9322cffbe603538c",
     "typed-file-io>=0.0.4",
+    "typed-concurrency @ git+https://github.com/0xveya/typed-concurrency.git@db2ab8caa024e968e6ea13a46e4e4c4b4754499d",
 ]
 
 [dependency-groups]
