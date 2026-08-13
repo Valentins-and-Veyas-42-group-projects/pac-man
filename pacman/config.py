@@ -9,7 +9,7 @@ the subject's "Faulty config handling" section.
 from dataclasses import dataclass
 from enum import Enum
 
-from typed_errs import Diagnostic, Err, Result
+from typed_errs import Diagnostic, Err, Result, Option
 
 
 class ConfigError(Enum):
@@ -33,6 +33,11 @@ def ConfigErr(
 class LevelConfig:
     """Width/height for a single maze level."""
 
+    width: int
+    height: int
+    seed: Option[int]
+    time: int
+
 
 @dataclass
 class Config:
@@ -40,6 +45,13 @@ class Config:
     (highscore_filename, levels, lives, pacgum, points_per_pacgum,
     points_per_super_pacgum, points_per_ghost, seed,
     level_max_time)."""
+
+    highscore_filename: str
+    lives: int
+    points_per_pacgum: int
+    points_per_super_pacgum: int
+    points_per_ghost: int
+    levels: list[LevelConfig]
 
 
 def strip_json_comments(raw_text: str) -> str:
