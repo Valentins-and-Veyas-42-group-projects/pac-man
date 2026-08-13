@@ -12,3 +12,4 @@ build/
 .hypothesis/
 *.db
 *.sqlite3
+*.pdf

@@ -6,6 +6,7 @@ requires-python = ">=3.11"
 dependencies = [
     "cli-fw>=0.0.4",
     "fsnotify-python>=0.0.2",
+    "mazegenerator==2.1.0",
     "pygame>=2.5",
     "python-crimes>=0.0.5,<1",
     "sqlite-callback-store>=0.0.4",
@@ -13,6 +14,9 @@ dependencies = [
     "typed-file-io>=0.0.4",
     "typed-concurrency>=0,<1",
 ]
+
+[tool.uv.sources]
+mazegenerator = { path = "vendor/mazegenerator-2.1.0-py3-none-any.whl" }
 
 [dependency-groups]
 dev = ["flake8", "mypy", "pytest", "ruff"]
@@ -63,3 +67,6 @@ line-ending = "lf"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = "."
+
+[tool.pyright]
+reportMissingTypeStubs = false

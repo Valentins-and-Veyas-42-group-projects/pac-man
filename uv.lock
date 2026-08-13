@@ -243,6 +243,14 @@ wheels = [
 ]
 
 [[package]]
+name = "mazegenerator"
+version = "2.1.0"
+source = { path = "vendor/mazegenerator-2.1.0-py3-none-any.whl" }
+wheels = [
+    { filename = "mazegenerator-2.1.0-py3-none-any.whl", hash = "sha256:98e12f7e989cef03dd4411657d7bee12653804aee87a568eddfaf21436ffd4aa" },
+]
+
+[[package]]
 name = "mccabe"
 version = "0.7.0"
 source = { registry = "https://pypi.org/simple" }
@@ -328,6 +336,7 @@ source = { editable = "." }
 dependencies = [
     { name = "cli-fw" },
     { name = "fsnotify-python" },
+    { name = "mazegenerator" },
     { name = "pygame" },
     { name = "python-crimes" },
     { name = "sqlite-callback-store" },
@@ -348,6 +357,7 @@ dev = [
 requires-dist = [
     { name = "cli-fw", specifier = ">=0.0.4" },
     { name = "fsnotify-python", specifier = ">=0.0.2" },
+    { name = "mazegenerator", path = "vendor/mazegenerator-2.1.0-py3-none-any.whl" },
     { name = "pygame", specifier = ">=2.5" },
     { name = "python-crimes", specifier = ">=0.0.5,<1" },
     { name = "sqlite-callback-store", specifier = ">=0.0.4" },
@@ -456,14 +466,14 @@ wheels = [
 
 [[package]]
 name = "python-crimes"
-version = "0.0.5"
+version = "0.0.9"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "typed-errs" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/42/05/277813cdb6bfe9280c06d5df902651e9d9507d452f666f150a3f4e27c2e8/python_crimes-0.0.5.tar.gz", hash = "sha256:ad09b483d338937eca50be36645a053b0b8470a7736bf0380921f0dd420926e3", size = 16381, upload-time = "2026-08-11T19:57:30.834Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/24/e6/6facea97578b1910a73029a4caee0de5c4e5ad1cc310de61e232d8d2c543/python_crimes-0.0.9.tar.gz", hash = "sha256:f882fd4e51331ce741a7403debcae438fc0f119744a135929ab8b1a07736547d", size = 16548, upload-time = "2026-08-13T18:41:49.725Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/c1/d0/4ab5e368fe000f47946ab24a2f5accae49c038b6d7751f2f2cbefc98eb99/python_crimes-0.0.5-py3-none-any.whl", hash = "sha256:794589fba385b7010579b4756eedc6ba400351f08e0a2eccf9d9c2d82dc5fbe0", size = 11984, upload-time = "2026-08-11T19:57:29.683Z" },
+    { url = "https://files.pythonhosted.org/packages/04/27/5de734e29a0359ea2cbbc14e472d306a567920a044064c4f03e3939be535/python_crimes-0.0.9-py3-none-any.whl", hash = "sha256:f8864ad574084afdb16a9aa4d273ba0c17ec5ba70fdc379ab4ed31b68cc0a6ac", size = 12069, upload-time = "2026-08-13T18:41:48.642Z" },
 ]
 
 [[package]]
