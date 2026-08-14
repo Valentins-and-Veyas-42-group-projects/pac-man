@@ -1,0 +1,6 @@
+{
+    # every omitted public field should produce a visible fallback warning
+    "levels": [
+        {"width": 17, "height": 17}
+    ]
+}

@@ -2,54 +2,41 @@
 
 import sys
 from dataclasses import dataclass
+from typing import cast
 
 from cli_fw import Command, arg
-from typed_errs import Err, Nothing, Ok, Option, Result, Some
-
 from pacman.maze_loader import MazeError, Solver, load_maze
+from typed_errs import Err, Nothing, Ok, Option, Result, Some
 
 
 @dataclass
 class MazeArgs:
     """Arguments for the temporary maze preview."""
 
-    width: int = arg(
-        help="Maze width",
-        default=30,
-    )
-    height: int = arg(
-        help="Maze height",
-        default=20,
-    )
-    seed: int = arg(
-        help="Random seed; use 0 for a random maze",
-        default=42,
-    )
+    width: int = cast(int, arg(help="Maze width", default=30))
+    height: int = cast(int, arg(help="Maze height", default=20))
+    seed: int = cast(int, arg(help="Random seed; use 0 for a random maze", default=42))
 
 
 def run(args: MazeArgs) -> Result[None, MazeError]:
-    """Generate and inspect one maze through the Pac-Man adapter."""
-    seed: Option[int] = Nothing() if args.seed == 0 else Some(args.seed)
+    """Generate and inspect one maze through the Pac-Man adapter.
 
-    result = load_maze(
-        width=args.width,
-        height=args.height,
-        seed=seed,
-    )
+    Args:
+        args: Parsed maze dimensions and seed.
+
+    Returns:
+        Ok after rendering the maze, or its typed generation error.
+    """
+    seed: Option[int] = Nothing() if args.seed == 0 else Some(args.seed)
+    result = load_maze(width=args.width, height=args.height, seed=seed)
 
     match result:
         case Err() as error:
             return error
-
         case Ok(maze):
-            rows = [
-                "".join(format(cell, "X") for cell in row)
-                for row in maze.cells
-            ]
-
+            rows = ["".join(format(cell, "X") for cell in row) for row in maze.cells]
             print("\n".join(rows))
             print()
-
             print(f"size:       {maze.width}x{maze.height}")
             print(f"entry:      {maze.entry}")
             print(f"exit:       {maze.exit}")
@@ -57,7 +44,6 @@ def run(args: MazeArgs) -> Result[None, MazeError]:
 
             print("entry checks:")
             print(f"  in bounds: {maze.in_bounds(*maze.entry)}")
-
             entry_neighbors = maze.neighbors(*maze.entry)
             print(f"  neighbors: {entry_neighbors}")
             print(f"  exits:     {len(entry_neighbors)}")
@@ -65,7 +51,6 @@ def run(args: MazeArgs) -> Result[None, MazeError]:
 
             print("exit checks:")
             print(f"  in bounds: {maze.in_bounds(*maze.exit)}")
-
             exit_neighbors = maze.neighbors(*maze.exit)
             print(f"  neighbors: {exit_neighbors}")
             print(f"  exits:     {len(exit_neighbors)}")
@@ -78,28 +63,12 @@ def run(args: MazeArgs) -> Result[None, MazeError]:
                 ("south", 0, 1),
                 ("west", -1, 0),
             ):
-                movable = maze.can_move(
-                    maze.entry[0],
-                    maze.entry[1],
-                    dx,
-                    dy,
-                )
+                movable = maze.can_move(maze.entry[0], maze.entry[1], dx, dy)
                 print(f"  {name:<5}: {movable}")
-
             print()
 
-            bfs = maze.path(
-                maze.entry,
-                maze.exit,
-                Solver.BFS,
-            )
-
-            dfs = maze.path(
-                maze.entry,
-                maze.exit,
-                Solver.DFS,
-            )
-
+            bfs = maze.path(maze.entry, maze.exit, Solver.BFS)
+            dfs = maze.path(maze.entry, maze.exit, Solver.DFS)
             print("pathfinding:")
 
             match bfs:
@@ -118,23 +87,23 @@ def run(args: MazeArgs) -> Result[None, MazeError]:
 
             return Ok(None)
 
-    raise AssertionError("unreachable Result variant")
-
 
 def main() -> None:
-    """Run the temporary maze development command."""
+    """Run the temporary maze development command.
+
+    Raises:
+        SystemExit: When maze generation fails.
+    """
     command = Command(
         name="maze-dev",
         short="Generate and inspect the Pac-Man maze",
         schema=MazeArgs,
         run=run,
     )
-
     result = command.execute(sys.argv[1:])
-
     if isinstance(result, Err):
         result.print_diagnostic()
-        sys.exit(1)
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

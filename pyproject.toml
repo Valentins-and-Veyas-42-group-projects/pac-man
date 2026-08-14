@@ -70,3 +70,4 @@ pythonpath = "."
 
 [tool.pyright]
 reportMissingTypeStubs = false
+reportUnusedExpression = false

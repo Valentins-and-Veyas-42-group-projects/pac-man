@@ -72,14 +72,14 @@ wheels = [
 
 [[package]]
 name = "cli-fw"
-version = "0.0.4"
+version = "0.0.6"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "typed-errs" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/d6/56/c130d1ae7f60a9ea43601928ca0c78bc48d3a4226590186ac35013ff73c5/cli_fw-0.0.4.tar.gz", hash = "sha256:d198c2d158a4164a42be2af046d47fc1922c73b0a36b17b13f1b17c6ec4c3a69", size = 15485, upload-time = "2026-08-09T17:26:07.746Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/fe/5f/af904b5e2cf874af9c41971ec49695ad38337e46c18cc0dc71980f0ad60c/cli_fw-0.0.6.tar.gz", hash = "sha256:d7c7a235dccd7d6821bdcf8ff204cf019d98719cf4716276c343d75a430e26a6", size = 15736, upload-time = "2026-08-14T23:15:56.271Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/38/9a/9d89f4ffdf83b01d74ed414bf05bf59031b6abfb0dd33d8c3c869044c625/cli_fw-0.0.4-py3-none-any.whl", hash = "sha256:430b0ec50f3cfb5152b47f7ee51fdd8b6947b3810ab85ea986a2fff85538a788", size = 10942, upload-time = "2026-08-09T17:26:06.613Z" },
+    { url = "https://files.pythonhosted.org/packages/25/14/5f9ef4ae727cbf542bbe2f1955dde05592356db5d7b5af03fc159696839f/cli_fw-0.0.6-py3-none-any.whl", hash = "sha256:f8c69b445bf8e65f19e7d8a198e9987b8b43f8c74ff6e440c914898dcafe6442", size = 11115, upload-time = "2026-08-14T23:15:55.077Z" },
 ]
 
 [[package]]
@@ -466,14 +466,14 @@ wheels = [
 
 [[package]]
 name = "python-crimes"
-version = "0.0.9"
+version = "0.0.11"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "typed-errs" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/24/e6/6facea97578b1910a73029a4caee0de5c4e5ad1cc310de61e232d8d2c543/python_crimes-0.0.9.tar.gz", hash = "sha256:f882fd4e51331ce741a7403debcae438fc0f119744a135929ab8b1a07736547d", size = 16548, upload-time = "2026-08-13T18:41:49.725Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/e1/17/18eb6b9bc4dc953329139f5394902f5c72b87f56f5074dc2cb7f41b3f9b7/python_crimes-0.0.11.tar.gz", hash = "sha256:d20485245bbb08ddf59ef46be647d71ce57e67c2cc3c1c9fc1c2c631032f90f5", size = 18022, upload-time = "2026-08-14T23:15:55.481Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/04/27/5de734e29a0359ea2cbbc14e472d306a567920a044064c4f03e3939be535/python_crimes-0.0.9-py3-none-any.whl", hash = "sha256:f8864ad574084afdb16a9aa4d273ba0c17ec5ba70fdc379ab4ed31b68cc0a6ac", size = 12069, upload-time = "2026-08-13T18:41:48.642Z" },
+    { url = "https://files.pythonhosted.org/packages/41/dd/5fe8f76d42c1a10bc6aa78d66beaa1cf4a17975d664a3add678493b9241a/python_crimes-0.0.11-py3-none-any.whl", hash = "sha256:7f8c21c5d1b1875ad9adffa0c50a3b36a2e4e2874a693b8fa11a989999286382", size = 13468, upload-time = "2026-08-14T23:15:54.353Z" },
 ]
 
 [[package]]
@@ -527,23 +527,23 @@ wheels = [
 
 [[package]]
 name = "typed-errs"
-version = "0.0.4"
+version = "0.0.7"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/b6/51/bc19ad946077f83d497a06c8170b6f469573feda3b6b433b56d30fef83d9/typed_errs-0.0.4.tar.gz", hash = "sha256:fd65ec3f455e1eee2cad51ce4a65b6c9e7920ac4bfab4368e057ac21e6b541fe", size = 9250, upload-time = "2026-08-09T17:26:03.026Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/68/64/f1f329daddd0b905de294d9e91a81de1f923d2de5c8602af0abaa51a3605/typed_errs-0.0.7.tar.gz", hash = "sha256:dc3abfb2b62d2d49321e608a034696186107122c42da25c3af2830b09e58f61f", size = 10078, upload-time = "2026-08-14T23:16:01.901Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a4/5b/55391c35daa08c81c4c75ef7e05f863af613bb39eb14fdb31e71cf038495/typed_errs-0.0.4-py3-none-any.whl", hash = "sha256:bf82e35a8a580f48e847c2abe192bdabdcc8146f25e40e404840768827698f72", size = 7654, upload-time = "2026-08-09T17:26:01.999Z" },
+    { url = "https://files.pythonhosted.org/packages/4b/32/0821a096ec5facb4cb4acf34a24680394bfe4f9670089500d485e3e6042d/typed_errs-0.0.7-py3-none-any.whl", hash = "sha256:6d93752176dc74bbbf2d429d65ba5c7ab7140c2c613ae3df249fb513c7b65db5", size = 8093, upload-time = "2026-08-14T23:16:00.843Z" },
 ]
 
 [[package]]
 name = "typed-file-io"
-version = "0.0.4"
+version = "0.0.7"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "typed-errs" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/72/6b/3e763bdf1215ff801d6689beb8a50f0c380317ec129f316e6d3cb0b1cff4/typed_file_io-0.0.4.tar.gz", hash = "sha256:c13b543cd81625e634a95a972bd367a66eabe76e0053c7fe3f8853611adc3c59", size = 6285, upload-time = "2026-08-09T17:26:07.994Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/c6/bf/ed5a76c5b0a2164b39177c7711f4af51255cb010f5e65a0ef42455c71cff/typed_file_io-0.0.7.tar.gz", hash = "sha256:226567ae6f41d576661b5ef07138fd303037003b3484f3dc6c7fc8916344d83b", size = 7313, upload-time = "2026-08-14T23:15:55.297Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ba/ab/712a3f3f2a1acbc27e25addda3bcfc39aea4b6d10365c38385ec56bfe892/typed_file_io-0.0.4-py3-none-any.whl", hash = "sha256:958ab64802921014366e1de286d2f5e0702d8eeab008c4481386906734bb6891", size = 6152, upload-time = "2026-08-09T17:26:06.738Z" },
+    { url = "https://files.pythonhosted.org/packages/14/2f/473573e3ccc7be85a10218e132a779b7a6ffdca64560419be3f57a6408ab/typed_file_io-0.0.7-py3-none-any.whl", hash = "sha256:f8c1c31728461b79dcde889877effe2c2595fb83b8e66bea11d6348760877b85", size = 6885, upload-time = "2026-08-14T23:15:54.158Z" },
 ]
 
 [[package]]

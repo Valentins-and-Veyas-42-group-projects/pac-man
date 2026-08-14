@@ -1,0 +1,11 @@
+{
+    "highscore_filename": "",
+    "levels": [{"width": 2, "height": 9999}],
+    "lives": "three",
+    "pacgum": -4,
+    "points_per_pacgum": false,
+    "points_per_super_pacgum": -1,
+    "points_per_ghost": 999999999,
+    "seed": "random",
+    "level_max_time": 0
+}

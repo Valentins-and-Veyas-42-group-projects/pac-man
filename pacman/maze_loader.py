@@ -24,8 +24,8 @@ from typed_errs import (
     Some,
 )
 
-
 Position = tuple[int, int]
+NO_MAZE_DIAGNOSTIC: Option[Diagnostic] = Nothing()
 
 
 class MazeError(Enum):
@@ -37,7 +37,7 @@ class MazeError(Enum):
 
 def maze_err(
     error: MazeError,
-    diagnostic: Diagnostic | None = None,
+    diagnostic: Option[Diagnostic] = NO_MAZE_DIAGNOSTIC,
 ) -> Err[MazeError]:
     """Create a maze error with consistent diagnostic context.
 
