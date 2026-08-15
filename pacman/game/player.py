@@ -1,12 +1,13 @@
 """Player movement and lifecycle."""
 
-from .board import Board
+from dataclasses import replace
+
 from ..models import Direction, Player, Position
+from .board import Board
 
 
 def move(player: Player, board: Board, direction: Direction) -> Player:
-    """Return a new `Player` moved one tile in `direction`, if the
-    move is not blocked by a wall.
+    """Return a new `Player` moved one tile in `direction`, if the move is not blocked by a wall.
 
     Args:
         player: The current player state.
@@ -16,7 +17,11 @@ def move(player: Player, board: Board, direction: Direction) -> Player:
     Returns:
         The (possibly unchanged) resulting `Player`.
     """
-    raise NotImplementedError
+    if board.is_wall(player.position, direction):
+        return player
+    dx, dy = direction.value
+    newpos = Position(player.position.x + dx, player.position.y + dy)
+    return replace(player, position=newpos)
 
 
 def respawn(player: Player, center: Position) -> Player:
