@@ -1,3 +1,6 @@
+# uv run python delete_me/maze/main.py --width 30 --height 20 --seed 42
+# Made by Codex as a disposable maze integration runner.
+
 """Temporary CLI for generating and inspecting the assigned maze."""
 
 import sys

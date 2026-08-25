@@ -1,3 +1,6 @@
+# uv run python delete_me/config/main.py
+# Made by Codex as a disposable configuration integration runner.
+
 """Exercise the config parser against the development fixtures."""
 
 import sys
@@ -9,7 +12,7 @@ from cli_fw import Command, arg
 from pacman.config import Config, load_config
 from typed_errs import Err, Some
 
-FIXTURE_DIR = Path(__file__).parent
+FIXTURE_DIR = Path(__file__).parents[2] / "config-test"
 EXPECTED_REJECTIONS = {
     "invalid-root.json",
     "malformed-json.json",
@@ -66,9 +69,7 @@ def run(args: ConfigTestArgs) -> int:
 
     print(f"{CYAN}Config parser fixtures{RESET} ({len(paths)})\n")
     for path in paths:
-        expected_rejection = (
-            not args.files and path.name in EXPECTED_REJECTIONS
-        )
+        expected_rejection = not args.files and path.name in EXPECTED_REJECTIONS
         result = load_config(str(path))
 
         if isinstance(result, Err):
@@ -105,7 +106,7 @@ def main() -> None:
         name="config-test",
         short="Exercise Pac-Man configuration loading",
         long="Load bundled fixtures or explicit config files through pacman.config",
-        example="uv run python config-test/main.py config.example.json",
+        example="uv run python delete_me/config/main.py config.example.json",
         schema=ConfigTestArgs,
         run=run,
     )
