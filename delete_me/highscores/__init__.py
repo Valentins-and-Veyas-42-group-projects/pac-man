@@ -1,0 +1,1 @@
+"""Disposable highscore integration tool."""

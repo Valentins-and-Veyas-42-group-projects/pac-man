@@ -10,6 +10,7 @@ from pathlib import Path
 ROOT = Path(__file__).parent
 RUNNERS = (
     ROOT / "config" / "main.py",
+    ROOT / "highscores" / "main.py",
     ROOT / "maze" / "main.py",
     ROOT / "replay" / "main.py",
 )

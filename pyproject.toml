@@ -19,7 +19,14 @@ dependencies = [
 mazegenerator = { path = "vendor/mazegenerator-2.1.0-py3-none-any.whl" }
 
 [dependency-groups]
-dev = ["flake8", "mypy", "pytest", "ruff"]
+dev = [
+    "basedpyright>=1.39.10",
+    "flake8",
+    "mypy",
+    "pytest",
+    "ruff",
+    "ty>=0.0.75",
+]
 
 [project.scripts]
 pacman = "pacman.main:main"

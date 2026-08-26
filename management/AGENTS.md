@@ -34,13 +34,13 @@ can't hit the GitHub API, and can go stale.
    gh issue list --repo Valentins-and-Veyas-42-group-projects/pac-man --state all --json number,title,state,url
    ```
 
-## Snapshot (last synced: 2026-08-07)
+## Snapshot (last synced: 2026-08-27)
 
 | # | Title | State |
 | --- | --- | --- |
-| 1 | Implement config loading (`pacman/config.py`) | OPEN |
-| 2 | Implement A-Maze-ing adapter (`pacman/maze_loader.py`) | OPEN |
-| 3 | Implement SQLite highscore store (`pacman/highscores/store.py`) | OPEN |
+| 1 | Implement config loading (`pacman/config.py`) | CLOSED |
+| 2 | Implement A-Maze-ing adapter (`pacman/maze_loader.py`) | CLOSED |
+| 3 | Implement SQLite highscore store (`pacman/highscores/store.py`) | CLOSED |
 | 4 | Implement game state machine (`pacman/game/state.py`) | OPEN |
 | 5 | Implement player movement (`pacman/game/player.py`) | OPEN |
 | 6 | Implement ghost AI (`pacman/game/ghosts.py`) | OPEN |
@@ -48,6 +48,9 @@ can't hit the GitHub API, and can go stale.
 | 8 | Wire up cheat mode | OPEN |
 | 9 | Package for a public gaming platform | OPEN |
 | 10 | Fill in project management docs | OPEN |
+| 11 | Default teammate onboarding and help guide | OPEN |
+| 13 | Idea: asynchronous death analysis with counterfactual replays | OPEN |
+| 14 | Idea: autoplay spectator mode | OPEN |
 
 Project board: not yet created (blocked on `project` OAuth scope).
 

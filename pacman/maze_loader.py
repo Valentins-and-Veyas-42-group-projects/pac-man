@@ -25,7 +25,6 @@ from typed_errs import (
 )
 
 Position = tuple[int, int]
-NO_MAZE_DIAGNOSTIC: Option[Diagnostic] = Nothing()
 
 
 class MazeError(Enum):
@@ -37,13 +36,15 @@ class MazeError(Enum):
 
 def maze_err(
     error: MazeError,
-    diagnostic: Option[Diagnostic] = NO_MAZE_DIAGNOSTIC,
+    diagnostic: Option[Diagnostic],
+    context_msg: str,
 ) -> Err[MazeError]:
     """Create a maze error with consistent diagnostic context.
 
     Args:
         error: Maze error category.
         diagnostic: Optional diagnostic information.
+        context_msg: Short description of the failed operation.
 
     Returns:
         A maze-loader error.
@@ -52,7 +53,26 @@ def maze_err(
         error=error,
         diagnostic=diagnostic,
         namespace="maze_loader",
-        context_msg="Maze generation failed",
+        context_msg=context_msg,
+    )
+
+
+def maze_diagnostic(value: object, help_msg: str) -> Some[Diagnostic]:
+    """Build a readable diagnostic for a generator boundary failure.
+
+    Returns:
+        A present diagnostic ready to attach to an error.
+    """
+    rendered = str(value)
+    return Some(
+        Diagnostic(
+            filename="maze-generator",
+            line_num=1,
+            line_text=rendered,
+            col_start=0,
+            col_end=max(1, len(rendered)),
+            help_msg=Some(help_msg),
+        )
     )
 
 
@@ -345,6 +365,16 @@ def load_maze(
     Returns:
         Generated maze or a maze generation error.
     """
+    if width <= 0 or height <= 0:
+        return maze_err(
+            MazeError.INVALID_GRID,
+            maze_diagnostic(
+                f"width={width}, height={height}",
+                "Use positive maze dimensions.",
+            ),
+            "Invalid requested maze dimensions",
+        )
+
     try:
         generator = MazeGenerator(
             size=(width, height),
@@ -355,18 +385,106 @@ def load_maze(
         cells = generator.maze
 
         if not cells or not cells[0]:
-            return maze_err(MazeError.INVALID_GRID)
-
-        if any(len(row) != len(cells[0]) for row in cells):
-            return maze_err(MazeError.INVALID_GRID)
-
-        return Ok(
-            Maze(
-                cells=cells,
-                entry=generator.maze_entry,
-                exit=generator.maze_exit,
+            return maze_err(
+                MazeError.INVALID_GRID,
+                maze_diagnostic(cells, "The generator must return a non-empty grid."),
+                "Maze generator returned an empty grid",
             )
+
+        if len(cells) != height or any(len(row) != width for row in cells):
+            return maze_err(
+                MazeError.INVALID_GRID,
+                maze_diagnostic(
+                    f"expected={width}x{height}, rows={len(cells)}",
+                    "The generated grid must match the requested dimensions.",
+                ),
+                "Maze generator returned the wrong grid dimensions",
+            )
+
+        for y, row in enumerate(cells):
+            for x, cell in enumerate(row):
+                if isinstance(cell, bool) or not 0 <= cell <= 15:
+                    return maze_err(
+                        MazeError.INVALID_GRID,
+                        maze_diagnostic(
+                            f"cells[{y}][{x}]={cell!r}",
+                            "Each maze cell must be an integer wall mask from 0 through 15.",
+                        ),
+                        "Maze generator returned an invalid wall mask",
+                    )
+
+                if x + 1 < width and bool(cell & Wall.EAST) != bool(row[x + 1] & Wall.WEST):
+                    return maze_err(
+                        MazeError.INVALID_GRID,
+                        maze_diagnostic(
+                            f"cells[{y}][{x}] east != cells[{y}][{x + 1}] west",
+                            "Adjacent cells must agree about their shared wall.",
+                        ),
+                        "Maze generator returned inconsistent walls",
+                    )
+
+                if y + 1 < height and bool(cell & Wall.SOUTH) != bool(cells[y + 1][x] & Wall.NORTH):
+                    return maze_err(
+                        MazeError.INVALID_GRID,
+                        maze_diagnostic(
+                            f"cells[{y}][{x}] south != cells[{y + 1}][{x}] north",
+                            "Adjacent cells must agree about their shared wall.",
+                        ),
+                        "Maze generator returned inconsistent walls",
+                    )
+
+        entry = generator.maze_entry
+        exit_ = generator.maze_exit
+        if not _position_in_bounds(entry, width, height):
+            return maze_err(
+                MazeError.INVALID_GRID,
+                maze_diagnostic(entry, "The maze entry must be inside the generated grid."),
+                "Maze generator returned an invalid entry",
+            )
+
+        if not _position_in_bounds(exit_, width, height):
+            return maze_err(
+                MazeError.INVALID_GRID,
+                maze_diagnostic(exit_, "The maze exit must be inside the generated grid."),
+                "Maze generator returned an invalid exit",
+            )
+
+        maze = Maze(
+            cells=[row.copy() for row in cells],
+            entry=entry,
+            exit=exit_,
+        )
+        if isinstance(maze.path(entry, exit_), Nothing):
+            return maze_err(
+                MazeError.INVALID_GRID,
+                maze_diagnostic(
+                    f"entry={entry}, exit={exit_}",
+                    "The generator must provide a traversable path from entry to exit.",
+                ),
+                "Maze generator returned an unreachable exit",
+            )
+
+        return Ok(maze)
+
+    except Exception as error:
+        return maze_err(
+            MazeError.GENERATION_FAILED,
+            maze_diagnostic(
+                f"{type(error).__name__}: {error}",
+                "Check the assigned A-Maze-ing package and requested maze settings.",
+            ),
+            "Maze generation failed",
         )
 
-    except Exception:
-        return maze_err(MazeError.GENERATION_FAILED)
+
+def _position_in_bounds(
+    position: object,
+    width: int,
+    height: int,
+) -> bool:
+    """Return whether an external position is a valid grid coordinate."""
+    match position:
+        case (int() as x, int() as y) if not isinstance(x, bool) and not isinstance(y, bool):
+            return 0 <= x < width and 0 <= y < height
+        case _:
+            return False

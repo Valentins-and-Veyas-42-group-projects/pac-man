@@ -1,6 +1,7 @@
-"""Core data types shared across the game, config, and highscore
-modules. Left as bare stubs -- fields/members to be added once the
-corresponding logic is implemented."""
+"""Core data types shared across the game, config, and highscore modules.
+
+Game fields remain stubs until their corresponding logic is implemented.
+"""
 
 from dataclasses import dataclass
 from enum import Enum
@@ -37,6 +38,9 @@ class Screen(Enum):
     """Which UI screen is currently active."""
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class HighscoreEntry:
     """A single row in the persistent highscore table."""
+
+    name: str
+    score: int
