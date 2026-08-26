@@ -110,12 +110,12 @@ class Maze:
 
     @property
     def width(self) -> int:
-        """Return maze width in cells."""
+        """Maze width in cells."""
         return len(self.cells[0])
 
     @property
     def height(self) -> int:
-        """Return maze height in cells."""
+        """Maze height in cells."""
         return len(self.cells)
 
     def in_bounds(self, x: int, y: int) -> bool:
@@ -239,7 +239,11 @@ class Maze:
         start: Position,
         target: Position,
     ) -> Option[list[Position]]:
-        """Find the shortest unweighted path using breadth-first search."""
+        """Find the shortest unweighted path using breadth-first search.
+
+        Returns:
+            The discovered path, or ``Nothing`` when no path exists.
+        """
         frontier: deque[Position] = deque([start])
         previous: dict[Position, Position] = {}
         seen: set[Position] = {start}
@@ -272,7 +276,11 @@ class Maze:
         start: Position,
         target: Position,
     ) -> Option[list[Position]]:
-        """Find a reachable path using depth-first search."""
+        """Find a reachable path using depth-first search.
+
+        Returns:
+            A discovered path, or ``Nothing`` when no path exists.
+        """
         frontier: list[Position] = [start]
         previous: dict[Position, Position] = {}
         seen: set[Position] = {start}
@@ -306,7 +314,11 @@ class Maze:
         start: Position,
         target: Position,
     ) -> list[Position]:
-        """Reconstruct a discovered path from target back to start."""
+        """Reconstruct a discovered path from target back to start.
+
+        Returns:
+            The path ordered from start through target.
+        """
         path: list[Position] = [target]
         current = target
 
