@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any, cast
 
 from cli_fw import Action, CliError, Command, Parser, arg
-from typed_errs import Err, Ok
+from typed_errs import Err, Ok, Some
 
 
 @dataclass
@@ -31,16 +31,14 @@ def assert_has_help_msg(
     result: Err[CliError], substring: str, invert: bool = False
 ) -> None:
     """Helper to check help message substring."""
-    assert result.diagnostic is not None, (
-        "Expected a diagnostic object, but got None"
-    )
-    assert result.diagnostic.help_msg is not None, (
-        "Expected help_msg to be a string, but got None"
-    )
+    assert isinstance(result.diagnostic, Some)
+    diagnostic = result.diagnostic.value
+    assert isinstance(diagnostic.help_msg, Some)
+    help_msg = diagnostic.help_msg.value
     if invert:
-        assert substring not in result.diagnostic.help_msg
+        assert substring not in help_msg
     else:
-        assert substring in result.diagnostic.help_msg
+        assert substring in help_msg
 
 
 def test_parse_success_all_fields():
