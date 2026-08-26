@@ -12,7 +12,7 @@ from cli_fw import Command, arg
 from pacman.config import Config, load_config
 from typed_errs import Err, Some
 
-FIXTURE_DIR = Path(__file__).parents[2] / "config-test"
+FIXTURE_DIR = Path(__file__).parent / "fixtures"
 EXPECTED_REJECTIONS = {
     "invalid-root.json",
     "malformed-json.json",
