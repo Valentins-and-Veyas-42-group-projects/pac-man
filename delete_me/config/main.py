@@ -69,7 +69,9 @@ def run(args: ConfigTestArgs) -> int:
 
     print(f"{CYAN}Config parser fixtures{RESET} ({len(paths)})\n")
     for path in paths:
-        expected_rejection = not args.files and path.name in EXPECTED_REJECTIONS
+        expected_rejection = (
+            not args.files and path.name in EXPECTED_REJECTIONS
+        )
         result = load_config(str(path))
 
         if isinstance(result, Err):

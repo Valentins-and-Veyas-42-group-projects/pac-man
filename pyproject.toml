@@ -20,7 +20,6 @@ mazegenerator = { path = "vendor/mazegenerator-2.1.0-py3-none-any.whl" }
 
 [dependency-groups]
 dev = [
-    "basedpyright>=1.39.10",
     "flake8",
     "mypy",
     "pytest",
@@ -74,7 +73,3 @@ line-ending = "lf"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = "."
-
-[tool.pyright]
-reportMissingTypeStubs = false
-reportUnusedExpression = false

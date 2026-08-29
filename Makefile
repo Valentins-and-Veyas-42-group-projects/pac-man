@@ -11,8 +11,9 @@ FLAKE8_FLAGS = --max-line-length=79 --exclude=.venv,.git,__pycache__,.mypy_cache
 FLAKE8 = uv run flake8
 MYPY = uv run mypy
 PYTEST = uv run pytest
+TY = uv run ty
 
-.PHONY: install run debug clean lint lint-strict test
+.PHONY: install run debug clean lint lint-strict test typecheck
 
 install:
 	uv sync --dev
@@ -38,3 +39,6 @@ lint-strict:
 
 test:
 	$(PYTEST)
+
+typecheck:
+	$(TY) check pacman delete_me tests
