@@ -8,11 +8,12 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).parent
-RUNNERS = (
-    ROOT / "config" / "main.py",
-    ROOT / "highscores" / "main.py",
-    ROOT / "maze" / "main.py",
-    ROOT / "replay" / "main.py",
+RUNNERS: tuple[tuple[str, ...], ...] = (
+    (str(ROOT / "config" / "main.py"),),
+    (str(ROOT / "highscores" / "main.py"),),
+    (str(ROOT / "maze" / "main.py"),),
+    (str(ROOT / "replay" / "main.py"),),
+    ("-m", "delete_me.analyze.main"),
 )
 
 
@@ -23,8 +24,9 @@ def main() -> int:
         Zero when every runner succeeds, otherwise the first failure status.
     """
     for runner in RUNNERS:
-        print(f"\n== {runner.parent.name} ==", flush=True)
-        result = subprocess.run([sys.executable, str(runner)], check=False)
+        name = "analyze" if runner[0] == "-m" else Path(runner[0]).parent.name
+        print(f"\n== {name} ==", flush=True)
+        result = subprocess.run([sys.executable, *runner], check=False)
         if result.returncode != 0:
             return result.returncode
     return 0
