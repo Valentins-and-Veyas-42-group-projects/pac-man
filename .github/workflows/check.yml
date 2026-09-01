@@ -1,0 +1,103 @@
+name: Check
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  project:
+    name: Project checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          enable-cache: true
+
+      - name: Install locked dependencies
+        run: uv sync --locked --dev
+
+      - name: Lint active modules and test tools
+        run: >-
+          uv run ruff check
+          delete_me
+          pacman/config.py
+          pacman/highscores
+          pacman/maze_loader.py
+          pacman/models.py
+          pacman/replay/recorder.py
+          pacman/replay/writer.py
+          tests
+
+      - name: Type-check active modules and test tools
+        run: >-
+          uv run mypy
+          pacman/config.py
+          pacman/highscores
+          pacman/maze_loader.py
+          pacman/models.py
+          pacman/replay
+          delete_me
+          tests/highscores
+          tests/test_maze_loader.py
+          tests/replay
+          --warn-return-any
+          --warn-unused-ignores
+          --ignore-missing-imports
+          --disallow-untyped-defs
+          --check-untyped-defs
+
+      - name: Type-check with ty
+        continue-on-error: true
+        run: >-
+          uv run ty check
+          pacman/config.py
+          pacman/highscores
+          pacman/maze_loader.py
+          pacman/models.py
+          pacman/replay
+          delete_me
+          tests
+
+      - name: Type-check with BasedPyright
+        continue-on-error: true
+        run: >-
+          uv run basedpyright
+          pacman/config.py
+          pacman/highscores
+          pacman/maze_loader.py
+          pacman/models.py
+          pacman/replay
+          delete_me
+          tests
+
+      - name: Run unit and integration tests
+        run: uv run pytest -q
+
+      - name: Run disposable integration tools
+        run: uv run python delete_me/main.py
+
+      - name: Simulate a recorded game
+        if: github.ref == 'refs/heads/veya' || github.head_ref == 'veya'
+        run: >-
+          uv run python delete_me/replay/main.py
+          --case simulate
+          --ticks 5000
+          --buffer_size 256
+          --width 21
+          --height 21
+          --seed 42
+
+      - name: Measure replay storage
+        if: github.ref == 'refs/heads/veya' || github.head_ref == 'veya'
+        run: >-
+          uv run python delete_me/replay/main.py
+          --case stress
+          --frames 100000
+          --batch_size 5000
