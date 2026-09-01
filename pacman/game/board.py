@@ -2,17 +2,26 @@
 
 from dataclasses import dataclass
 
-from ..models import Direction, Position
+from ..models import Cardinals, Direction, Position
 
 
 @dataclass
 class Board:
     """Wraps a generated `Maze` and tracks which pacgums remain."""
 
-    def is_wall(self, position: Position, direction: Direction) -> bool:
+    def is_wall(
+        self, position: Position, cardinal: Cardinals, grid: list[list[int]]
+    ) -> bool:  # TODO: Supposed to be the maze grid!
         """Return whether there is a wall in `direction` from
         `position`."""
-        raise NotImplementedError
+        x, y = position.x, position.y
+        if grid[y][x] & (1 << cardinal.value) == 0:
+            return True
+        return False
+
+    def is_inbounds(self, position: Position, width: int, height: int) -> bool:
+        x, y = position.x, position.y
+        return 0 <= x < width and 0 <= y < height
 
     def eat_pacgum(self, position: Position) -> bool:
         """Remove the pacgum at `position` if present.

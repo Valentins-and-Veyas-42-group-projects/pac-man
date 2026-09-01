@@ -16,6 +16,15 @@ class Direction(Enum):
     RIGHT = (1, 0)
 
 
+class Cardinals(Enum):
+    """Cardinal directions encoded as bit positions for cell walls."""
+
+    NORTH = 0
+    EAST = 1
+    SOUTH = 2
+    WEST = 3
+
+
 @dataclass(frozen=True)
 class Position:
     """A tile coordinate within the maze grid."""
