@@ -12,7 +12,9 @@ from cli_fw import Command, arg
 from pacman.analyze.maze_graph import build_maze_graph
 from pacman.analyze.models import MazeGraph
 from pacman.analyze.pathfinding import bfs, shortest_path
+from pacman.analyze.safety import SafetyField, SafetyKind, build_safety_field
 from pacman.analyze.state import analyze_frame
+from pacman.analyze.threat import NO_THREAT, ThreatField, build_threat_field
 from pacman.maze_loader import load_maze
 from pacman.replay.maze_codec import encode_topology
 from pacman.replay.models import (
@@ -107,6 +109,53 @@ def render_graph(
     return "\n".join(lines)
 
 
+def render_threat_field(graph: MazeGraph, threat: ThreatField) -> str:
+    """Render earliest threat ownership and ETA for every maze tile.
+
+    Returns:
+        A rectangular grid using ghost initials and arrival ticks.
+    """
+    rows: list[str] = []
+    for y in range(graph.height):
+        cells: list[str] = []
+        for x in range(graph.width):
+            tile = TileIndex(y * graph.width + x)
+            eta = threat.etas[int(tile)]
+            owners = threat.owners(tile)
+            owner = "." if not owners else owners[0].name[0]
+            if len(owners) > 1:
+                owner = "+"
+            cells.append(".--" if eta == NO_THREAT else f"{owner}{eta:02}")
+        rows.append(" ".join(cells))
+    return "\n".join(rows)
+
+
+def render_safety_field(graph: MazeGraph, safety: SafetyField) -> str:
+    """Render Pac-Man's arrival margin against dangerous ghosts.
+
+    Returns:
+        A rectangular grid of safety classifications and margins.
+    """
+    rows: list[str] = []
+    for y in range(graph.height):
+        cells: list[str] = []
+        for x in range(graph.width):
+            tile = safety.tiles[y * graph.width + x]
+            if tile.kind is SafetyKind.UNREACHABLE:
+                label = "XXX"
+            elif tile.kind is SafetyKind.UNTHREATENED:
+                label = "U--"
+            elif tile.kind is SafetyKind.CONTESTED:
+                label = "X00"
+            else:
+                margin = tile.margin.unwrap()
+                prefix = "S" if tile.kind is SafetyKind.SAFE else "D"
+                label = f"{prefix}{margin:+d}"
+            cells.append(f"{label:>3}")
+        rows.append(" ".join(cells))
+    return "\n".join(rows)
+
+
 def run_graph(args: AnalyzeArgs) -> int:
     """Generate, encode, graph, and render one real maze.
 
@@ -186,6 +235,12 @@ def run_graph(args: AnalyzeArgs) -> int:
                 Direction.LEFT,
                 GhostState.FRIGHTENED,
             ),
+            GhostFrame(
+                Ghost.PINKY,
+                maze.position(middle_tile),
+                Direction.LEFT,
+                GhostState.SCATTER,
+            ),
         ),
         Score(0),
         3,
@@ -194,6 +249,14 @@ def run_graph(args: AnalyzeArgs) -> int:
     state = analyze_frame(graph.value, maze, sample_frame)
     if isinstance(state, Err):
         state.print_diagnostic()
+        return 1
+    threat = build_threat_field(graph.value, state.value.ghost_distances)
+    if isinstance(threat, Err):
+        threat.print_diagnostic()
+        return 1
+    safety = build_safety_field(field.value, threat.value)
+    if isinstance(safety, Err):
+        safety.print_diagnostic()
         return 1
 
     print(render_graph(graph.value, frozenset(path.value.tiles), origin, destination))
@@ -213,6 +276,14 @@ def run_graph(args: AnalyzeArgs) -> int:
     for ghost in state.value.ghost_distances:
         danger = "dangerous" if ghost.dangerous else "non-lethal"
         print(f"  {ghost.ghost.name:<7} tile={ghost.tile} distance={ghost.distance} {danger}")
+    print()
+    print("threat field (owner + earliest arrival tick):")
+    print(render_threat_field(graph.value, threat.value))
+    print("  B/P/I/C=ghost, +=tie, .=no dangerous arrival")
+    print()
+    print("safety field (ghost ETA - Pac-Man ETA):")
+    print(render_safety_field(graph.value, safety.value))
+    print("  S=positive margin, X=tie, D=ghost first, U=unthreatened")
     print("verified:       graph edges match maze movement")
     print("legend:         S=start, D=destination, *=shortest path")
     return 0
