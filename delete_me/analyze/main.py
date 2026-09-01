@@ -12,9 +12,23 @@ from cli_fw import Command, arg
 from pacman.analyze.maze_graph import build_maze_graph
 from pacman.analyze.models import MazeGraph
 from pacman.analyze.pathfinding import bfs, shortest_path
+from pacman.analyze.state import analyze_frame
 from pacman.maze_loader import load_maze
 from pacman.replay.maze_codec import encode_topology
-from pacman.replay.models import Direction, Maze, MazeId, TileIndex
+from pacman.replay.models import (
+    Direction,
+    Frame,
+    GamePhase,
+    Ghost,
+    GhostFrame,
+    GhostState,
+    Maze,
+    MazeId,
+    PlayerFrame,
+    Score,
+    Tick,
+    TileIndex,
+)
 from typed_errs import Err, Nothing, Option, Some
 
 from delete_me.analyze.live_main import run as run_live
@@ -154,6 +168,34 @@ def run_graph(args: AnalyzeArgs) -> int:
             return 1
 
     edge_count = sum(len(moves) for moves in graph.value.moves)
+    middle_tile = path.value.tiles[len(path.value.tiles) // 2]
+    player_direction = graph.value.neighbors(origin)[0].direction
+    sample_frame = Frame(
+        Tick(0),
+        PlayerFrame(maze.position(origin), player_direction),
+        (
+            GhostFrame(
+                Ghost.BLINKY,
+                maze.position(destination),
+                Direction.LEFT,
+                GhostState.CHASE,
+            ),
+            GhostFrame(
+                Ghost.INKY,
+                maze.position(middle_tile),
+                Direction.LEFT,
+                GhostState.FRIGHTENED,
+            ),
+        ),
+        Score(0),
+        3,
+        GamePhase.PLAYING,
+    )
+    state = analyze_frame(graph.value, maze, sample_frame)
+    if isinstance(state, Err):
+        state.print_diagnostic()
+        return 1
+
     print(render_graph(graph.value, frozenset(path.value.tiles), origin, destination))
     print()
     print(f"size:           {graph.value.width}x{graph.value.height}")
@@ -163,6 +205,14 @@ def run_graph(args: AnalyzeArgs) -> int:
     print(f"path:           {origin} -> {destination}")
     print(f"distance:       {path.value.distance}")
     print(f"tiles:          {tuple(int(tile) for tile in path.value.tiles)}")
+    print()
+    print("frame analysis:")
+    print(f"  player tile:  {state.value.player_tile}")
+    print(f"  topology:     {state.value.tile_kind.value}")
+    print("  legal moves:  " + ", ".join(direction.name for direction in state.value.legal_actions))
+    for ghost in state.value.ghost_distances:
+        danger = "dangerous" if ghost.dangerous else "non-lethal"
+        print(f"  {ghost.ghost.name:<7} tile={ghost.tile} distance={ghost.distance} {danger}")
     print("verified:       graph edges match maze movement")
     print("legend:         S=start, D=destination, *=shortest path")
     return 0
