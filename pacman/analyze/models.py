@@ -3,6 +3,8 @@
 from dataclasses import dataclass
 from enum import Enum
 
+from typed_errs import Option
+
 from pacman.replay.models import Direction, TileIndex
 
 
@@ -19,6 +21,7 @@ class Move:
 
     destination: TileIndex
     direction: Direction
+    wraparound: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,7 +53,7 @@ class DistanceField:
 
     origin: TileIndex
     distances: tuple[int, ...]
-    previous: tuple[TileIndex | None, ...]
+    previous: tuple[Option[TileIndex], ...]
 
 
 @dataclass(frozen=True, slots=True)

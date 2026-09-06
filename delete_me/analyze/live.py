@@ -15,6 +15,7 @@ from pacman.replay.models import (
     ReplayId,
     Tick,
 )
+from typed_errs import Nothing, Option, Some
 
 
 class AnalysisOffer(Enum):
@@ -147,7 +148,7 @@ class MockLiveReplayAnalyzer:
     def __init__(self, replay_id: ReplayId, recent_capacity: int = 120) -> None:
         """Create empty state for one replay."""
         self._replay_id = replay_id
-        self._previous: Frame | None = None
+        self._previous: Option[Frame] = Nothing()
         self._recent = deque[Frame](maxlen=recent_capacity)
         self._observations: list[LiveObservation] = []
         self._moments: list[CandidateMoment] = []
@@ -192,21 +193,21 @@ class MockLiveReplayAnalyzer:
                 )
 
             self._recent.append(frame)
-            self._previous = frame
+            self._previous = Some(frame)
 
     def _previous_has_contact(self) -> bool:
-        if self._previous is None:
+        if isinstance(self._previous, Nothing):
             return False
         return any(
-            ghost.position == self._previous.player.position
+            ghost.position == self._previous.value.player.position
             and ghost.state not in (GhostState.FRIGHTENED, GhostState.EATEN)
-            for ghost in self._previous.ghosts
+            for ghost in self._previous.value.ghosts
         )
 
     def _ghost_states_changed(self, frame: Frame) -> bool:
-        if self._previous is None:
+        if isinstance(self._previous, Nothing):
             return False
-        previous = {ghost.ghost: ghost.state for ghost in self._previous.ghosts}
+        previous = {ghost.ghost: ghost.state for ghost in self._previous.value.ghosts}
         return any(previous.get(ghost.ghost) != ghost.state for ghost in frame.ghosts)
 
     def _job(

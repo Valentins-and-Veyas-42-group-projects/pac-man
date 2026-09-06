@@ -50,7 +50,7 @@ def bfs(
     distances = [UNREACHABLE] * len(graph.moves)
     distances[int(origin)] = 0
     queue: deque[TileIndex] = deque([origin])
-    previous: list[TileIndex | None] = [None] * len(graph.moves)
+    previous: list[Option[TileIndex]] = [Nothing() for _ in graph.moves]
 
     while queue:
         current = queue.popleft()
@@ -64,14 +64,10 @@ def bfs(
                 continue
 
             distances[neighbor_index] = current_distance + 1
-            previous[neighbor_index] = current
+            previous[neighbor_index] = Some(current)
             queue.append(neighbor)
 
-    return Ok(
-        DistanceField(
-            origin=origin, distances=tuple(distances), previous=tuple(previous)
-        )
-    )
+    return Ok(DistanceField(origin=origin, distances=tuple(distances), previous=tuple(previous)))
 
 
 def distance_to(
@@ -120,12 +116,11 @@ def shortest_path(
 
     while current != field.origin:
         previous = field.previous[int(current)]
-
-        if previous is None:
+        if isinstance(previous, Nothing):
             return Nothing()
 
-        reversed_tiles.append(previous)
-        current = previous
+        reversed_tiles.append(previous.value)
+        current = previous.value
 
     reversed_tiles.reverse()
     return Some(Path(tuple(reversed_tiles)))

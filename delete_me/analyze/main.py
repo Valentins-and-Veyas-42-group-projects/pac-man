@@ -11,6 +11,7 @@ from typing import cast
 from cli_fw import Command, arg
 from pacman.analyze.maze_graph import build_maze_graph
 from pacman.analyze.models import MazeGraph
+from pacman.analyze.options import evaluate_actions
 from pacman.analyze.pathfinding import bfs, shortest_path
 from pacman.analyze.safety import SafetyField, SafetyKind, build_safety_field
 from pacman.analyze.state import analyze_frame
@@ -35,7 +36,7 @@ from typed_errs import Err, Nothing, Option, Some
 
 from delete_me.analyze.live_main import run as run_live
 
-CASES = ["graph", "live"]
+CASES = ["graph", "tunnel", "live"]
 
 
 @dataclass
@@ -211,6 +212,7 @@ def run_graph(args: AnalyzeArgs) -> int:
                 int(maze.position(move.destination).y),
             )
             for move in moves
+            if not move.wraparound
         }
         if actual != expected:
             print(f"graph mismatch at tile {raw_tile}: {actual} != {expected}")
@@ -258,6 +260,10 @@ def run_graph(args: AnalyzeArgs) -> int:
     if isinstance(safety, Err):
         safety.print_diagnostic()
         return 1
+    options = evaluate_actions(graph.value, threat.value, state.value.player_tile)
+    if isinstance(options, Err):
+        options.print_diagnostic()
+        return 1
 
     print(render_graph(graph.value, frozenset(path.value.tiles), origin, destination))
     print()
@@ -265,6 +271,10 @@ def run_graph(args: AnalyzeArgs) -> int:
     print(f"nodes:          {len(graph.value.moves)}")
     print(f"directed edges: {edge_count}")
     print(f"connections:    {edge_count // 2}")
+    print(
+        "wrap edges:     "
+        + str(sum(move.wraparound for moves in graph.value.moves for move in moves))
+    )
     print(f"path:           {origin} -> {destination}")
     print(f"distance:       {path.value.distance}")
     print(f"tiles:          {tuple(int(tile) for tile in path.value.tiles)}")
@@ -284,8 +294,63 @@ def run_graph(args: AnalyzeArgs) -> int:
     print("safety field (ghost ETA - Pac-Man ETA):")
     print(render_safety_field(graph.value, safety.value))
     print("  S=positive margin, X=tie, D=ghost first, U=unthreatened")
+    print()
+    print("legal action options:")
+    for option in options.value:
+        margin = (
+            "none"
+            if isinstance(option.minimum_margin, Nothing)
+            else str(option.minimum_margin.value)
+        )
+        print(
+            f"  {option.action.name:<5} first={option.first_tile} "
+            f"safe tiles={option.safe_tiles} intersections={option.safe_intersections} "
+            f"horizon={option.horizon_ticks} min margin={margin}"
+        )
     print("verified:       graph edges match maze movement")
     print("legend:         S=start, D=destination, *=shortest path")
+    return 0
+
+
+def run_tunnel() -> int:
+    """Build a tiny tunnel maze and show its wraparound shortest path.
+
+    Returns:
+        Zero after a successful demonstration, otherwise one.
+    """
+    topology = encode_topology([[5, 5, 5]])
+    if isinstance(topology, Err):
+        topology.print_diagnostic()
+        return 1
+    maze = Maze(
+        id=MazeId(0),
+        width=3,
+        height=1,
+        topology=topology.value,
+        initial_collectibles=b"",
+        checksum=b"tunnel-demo",
+    )
+    graph = build_maze_graph(maze)
+    if isinstance(graph, Err):
+        graph.print_diagnostic()
+        return 1
+    field = bfs(graph.value, TileIndex(0))
+    if isinstance(field, Err):
+        field.print_diagnostic()
+        return 1
+    path = shortest_path(field.value, TileIndex(2))
+    if isinstance(path, Nothing):
+        print("no tunnel path from tile 0 to tile 2")
+        return 1
+
+    print("tunnel maze: 0 -- 1 -- 2")
+    print("open boundaries connect 0 LEFT to 2 and 2 RIGHT to 0")
+    print(f"shortest path: {tuple(int(tile) for tile in path.value.tiles)}")
+    print(f"distance:      {path.value.distance}")
+    for raw_tile, moves in enumerate(graph.value.moves):
+        for move in moves:
+            if move.wraparound:
+                print(f"wrap edge:     {raw_tile} {move.direction.name} -> {move.destination}")
     return 0
 
 
@@ -297,6 +362,8 @@ def run(args: AnalyzeArgs) -> int:
     """
     if args.case == "live":
         return asyncio.run(run_live())
+    if args.case == "tunnel":
+        return run_tunnel()
     return run_graph(args)
 
 
