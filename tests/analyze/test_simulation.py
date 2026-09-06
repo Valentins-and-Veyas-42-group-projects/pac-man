@@ -102,3 +102,41 @@ def test_simulation_uses_tunnel_as_first_action() -> None:
 
     assert result.terminals[0].path == (TileIndex(0), TileIndex(2))
     assert result.terminals[0].power_pellets_eaten == 1
+
+
+def test_head_on_tile_swap_counts_as_contact() -> None:
+    maze, collectibles = corridor()
+    crossing = GhostPrediction(
+        Ghost.BLINKY,
+        (
+            (
+                PredictedGhostState(
+                    Ghost.BLINKY,
+                    TileIndex(1),
+                    Direction.LEFT,
+                    0,
+                    GhostState.CHASE,
+                ),
+            ),
+            (
+                PredictedGhostState(
+                    Ghost.BLINKY,
+                    TileIndex(0),
+                    Direction.LEFT,
+                    1,
+                    GhostState.CHASE,
+                ),
+            ),
+        ),
+    )
+
+    result = simulate_action(
+        build_maze_graph(maze).unwrap(),
+        collectibles,
+        (crossing,),
+        TileIndex(0),
+        Direction.RIGHT,
+        SimulationRules(horizon_ticks=1),
+    ).unwrap()
+
+    assert result.terminals[0].died

@@ -50,5 +50,12 @@ def test_score_breaks_ties_after_tactical_features() -> None:
     assert rank_outcomes((empty, pellets)) == (pellets, empty)
 
 
+def test_safe_ghost_combo_can_trade_a_small_amount_of_territory() -> None:
+    combo = outcome(Direction.RIGHT, intersections=0, score=250, ghosts=1)
+    pellets = outcome(Direction.DOWN, intersections=1, score=20)
+
+    assert rank_outcomes((pellets, combo)) == (combo, pellets)
+
+
 def test_empty_outcomes_have_no_best_action() -> None:
     assert isinstance(best_outcome(()), Nothing)
