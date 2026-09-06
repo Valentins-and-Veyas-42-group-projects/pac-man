@@ -36,8 +36,9 @@ from typed_errs import Err, Nothing, Option, Some
 
 from delete_me.analyze.coaching_main import run as run_coaching
 from delete_me.analyze.live_main import run as run_live
+from delete_me.analyze.replay_main import run as run_replay
 
-CASES = ["graph", "tunnel", "coaching", "live"]
+CASES = ["graph", "tunnel", "coaching", "replay", "live"]
 
 
 @dataclass
@@ -365,6 +366,8 @@ def run(args: AnalyzeArgs) -> int:
         return asyncio.run(run_live())
     if args.case == "coaching":
         return run_coaching()
+    if args.case == "replay":
+        return run_replay()
     if args.case == "tunnel":
         return run_tunnel()
     return run_graph(args)
