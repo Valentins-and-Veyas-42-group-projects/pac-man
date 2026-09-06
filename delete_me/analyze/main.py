@@ -34,9 +34,10 @@ from pacman.replay.models import (
 )
 from typed_errs import Err, Nothing, Option, Some
 
+from delete_me.analyze.coaching_main import run as run_coaching
 from delete_me.analyze.live_main import run as run_live
 
-CASES = ["graph", "tunnel", "live"]
+CASES = ["graph", "tunnel", "coaching", "live"]
 
 
 @dataclass
@@ -362,6 +363,8 @@ def run(args: AnalyzeArgs) -> int:
     """
     if args.case == "live":
         return asyncio.run(run_live())
+    if args.case == "coaching":
+        return run_coaching()
     if args.case == "tunnel":
         return run_tunnel()
     return run_graph(args)
