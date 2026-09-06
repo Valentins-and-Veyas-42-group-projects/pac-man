@@ -32,7 +32,12 @@ class PredictedGhostState:
     tile: TileIndex
     direction: Direction
     tick: int
-    dangerous: bool
+    state: GhostState
+
+    @property
+    def dangerous(self) -> bool:
+        """Whether contact with this predicted state is lethal."""
+        return self.state not in (GhostState.FRIGHTENED, GhostState.EATEN)
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,8 +89,7 @@ def predict_ghost(
     if not graph.contains(origin):
         return prediction_err(PredictionError.INVALID_GHOST_TILE)
 
-    dangerous = ghost.state not in (GhostState.FRIGHTENED, GhostState.EATEN)
-    current = (PredictedGhostState(ghost.ghost, origin, ghost.direction, 0, dangerous),)
+    current = (PredictedGhostState(ghost.ghost, origin, ghost.direction, 0, ghost.state),)
     ticks: list[tuple[PredictedGhostState, ...]] = [current]
 
     for tick in range(1, horizon + 1):
@@ -97,7 +101,7 @@ def predict_ghost(
                     tile=move.destination,
                     direction=move.direction,
                     tick=tick,
-                    dangerous=state.dangerous,
+                    state=state.state,
                 )
                 next_states[(predicted.tile, predicted.direction)] = predicted
         current = tuple(next_states.values())
