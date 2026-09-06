@@ -17,6 +17,19 @@ class OutcomeError(Enum):
 
 
 @dataclass(frozen=True, slots=True)
+class OutcomePolicy:
+    """Weights for tactical tradeoffs after survival has been secured."""
+
+    safe_tile_value: int = 5
+    safe_intersection_value: int = 50
+    threat_margin_value: int = 10
+    unthreatened_bonus: int = 20
+
+
+DEFAULT_OUTCOME_POLICY = OutcomePolicy()
+
+
+@dataclass(frozen=True, slots=True)
 class ActionOutcome:
     """Comparable tactical result for one legal first action."""
 
@@ -101,26 +114,34 @@ def summarize_simulation(
     )
 
 
-def outcome_rank(outcome: ActionOutcome) -> tuple[int, ...]:
+def outcome_rank(
+    outcome: ActionOutcome,
+    policy: OutcomePolicy = DEFAULT_OUTCOME_POLICY,
+) -> tuple[int, ...]:
     """Return the tactical ordering key for an action outcome.
 
     Returns:
         A key whose larger values represent better actions.
     """
+    margin_value = 0
     if isinstance(outcome.threat_margin, Some):
-        margin = outcome.threat_margin.value
+        margin_value = outcome.threat_margin.value * policy.threat_margin_value
     elif outcome.safe_tiles > 0:
-        margin = 1_000_000
-    else:
-        margin = -1_000_000
+        margin_value = policy.unthreatened_bonus
+    tactical_value = (
+        outcome.safe_intersections * policy.safe_intersection_value
+        + outcome.safe_tiles * policy.safe_tile_value
+        + margin_value
+        + outcome.score_gained
+    )
     return (
         int(not outcome.died),
         outcome.survival_horizon,
-        outcome.safe_intersections,
-        outcome.safe_tiles,
-        margin,
+        tactical_value,
         outcome.score_gained,
         outcome.ghosts_eaten,
+        outcome.safe_intersections,
+        outcome.safe_tiles,
         outcome.remaining_power_ticks,
     )
 

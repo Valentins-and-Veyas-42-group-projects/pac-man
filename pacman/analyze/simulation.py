@@ -82,17 +82,30 @@ def first_move(graph: MazeGraph, origin: TileIndex, action: Direction) -> Option
     return Nothing()
 
 
-def ghosts_at(
+def ghost_contacts(
     predictions: tuple[GhostPrediction, ...],
-    tile: TileIndex,
+    origin: TileIndex,
+    destination: TileIndex,
     tick: int,
 ) -> tuple[PredictedGhostState, ...]:
-    """Return predicted ghosts occupying one tile at one relative tick."""
-    states: list[PredictedGhostState] = []
+    """Return same-tile and head-on edge-swap contacts for one move."""
+    contacts: dict[Ghost, PredictedGhostState] = {}
     for prediction in predictions:
-        if tick < len(prediction.ticks):
-            states.extend(state for state in prediction.ticks[tick] if state.tile == tile)
-    return tuple(states)
+        if tick >= len(prediction.ticks):
+            continue
+        for state in prediction.ticks[tick]:
+            if state.tile == destination:
+                contacts[state.ghost] = state
+                continue
+            if state.tile != origin or tick == 0:
+                continue
+            crossed = any(
+                previous.ghost is state.ghost and previous.tile == destination
+                for previous in prediction.ticks[tick - 1]
+            )
+            if crossed:
+                contacts[state.ghost] = state
+    return tuple(contacts.values())
 
 
 def advance_state(
@@ -129,7 +142,7 @@ def advance_state(
 
     eaten = set(state.eaten_ghosts)
     died = False
-    for ghost in ghosts_at(predictions, tile, tick):
+    for ghost in ghost_contacts(predictions, state.tile, tile, tick):
         if ghost.ghost in eaten or ghost.state is GhostState.EATEN:
             continue
         if frightened > 0 or ghost.state is GhostState.FRIGHTENED:
