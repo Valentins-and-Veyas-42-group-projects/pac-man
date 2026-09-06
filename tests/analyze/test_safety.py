@@ -13,7 +13,7 @@ def test_safety_field_classifies_every_arrival_relationship() -> None:
     player = DistanceField(
         origin=TileIndex(0),
         distances=(0, 1, 2, 3, 4, -1),
-        previous=(None,) * 6,
+        previous=tuple(Nothing() for _ in range(6)),
     )
     threats = ThreatField(
         etas=(4, 3, 2, 1, NO_THREAT, 0),
@@ -46,7 +46,7 @@ def test_safety_field_classifies_every_arrival_relationship() -> None:
 
 
 def test_safety_field_lookup_rejects_invalid_tiles() -> None:
-    player = DistanceField(TileIndex(0), (0,), (None,))
+    player = DistanceField(TileIndex(0), (0,), (Nothing(),))
     threats = ThreatField((NO_THREAT,), ((),))
     safety = build_safety_field(player, threats).unwrap()
 
@@ -56,7 +56,7 @@ def test_safety_field_lookup_rejects_invalid_tiles() -> None:
 
 
 def test_safety_field_rejects_different_field_sizes() -> None:
-    player = DistanceField(TileIndex(0), (0, 1), (None, None))
+    player = DistanceField(TileIndex(0), (0, 1), (Nothing(), Nothing()))
     threats = ThreatField((0,), ((Ghost.BLINKY,),))
     result = build_safety_field(player, threats)
 
@@ -65,7 +65,7 @@ def test_safety_field_rejects_different_field_sizes() -> None:
 
 
 def test_safety_field_rejects_internally_inconsistent_threat_field() -> None:
-    player = DistanceField(TileIndex(0), (0,), (None,))
+    player = DistanceField(TileIndex(0), (0,), (Nothing(),))
     threats = ThreatField((0,), ())
     result = build_safety_field(player, threats)
 

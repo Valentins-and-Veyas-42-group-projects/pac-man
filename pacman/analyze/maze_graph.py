@@ -2,7 +2,7 @@
 
 from typing import TypeAlias
 
-from typed_errs import Err, Ok, Result
+from typed_errs import Err, Nothing, Ok, Option, Result, Some
 
 from pacman.replay.maze_codec import decode_topology
 from pacman.replay.models import Direction, Maze, TileIndex
@@ -54,6 +54,25 @@ def tile_index(width: int, x: int, y: int) -> TileIndex:
     return TileIndex(y * width + x)
 
 
+def wrapped_position(
+    width: int,
+    height: int,
+    x: int,
+    y: int,
+    direction: Direction,
+) -> Option[tuple[int, int]]:
+    """Return the opposite boundary position for an outward move."""
+    if direction is Direction.LEFT and x == 0 and width > 1:
+        return Some((width - 1, y))
+    if direction is Direction.RIGHT and x == width - 1 and width > 1:
+        return Some((0, y))
+    if direction is Direction.UP and y == 0 and height > 1:
+        return Some((x, height - 1))
+    if direction is Direction.DOWN and y == height - 1 and height > 1:
+        return Some((x, 0))
+    return Nothing()
+
+
 def build_maze_graph(
     maze: Maze,
 ) -> Result[MazeGraph, MazeGraphError]:
@@ -87,6 +106,29 @@ def build_maze_graph(
                 ny = y + dy
 
                 if not (0 <= nx < maze.width and 0 <= ny < maze.height):
+                    wrapped = wrapped_position(
+                        maze.width,
+                        maze.height,
+                        x,
+                        y,
+                        direction,
+                    )
+                    if isinstance(wrapped, Nothing):
+                        continue
+
+                    nx, ny = wrapped.value
+                    neighbor = cells[ny][nx]
+                    current_is_open = not bool(cell & wall)
+                    neighbor_is_open = not bool(neighbor & opposite_wall)
+
+                    if current_is_open and neighbor_is_open:
+                        moves.append(
+                            Move(
+                                destination=tile_index(maze.width, nx, ny),
+                                direction=direction,
+                                wraparound=True,
+                            )
+                        )
                     continue
 
                 neighbor = cells[ny][nx]
