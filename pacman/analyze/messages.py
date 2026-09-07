@@ -22,4 +22,13 @@ class DeathQueued:
     tick: Tick
 
 
-AnalysisMessage: TypeAlias = TurnObserved | DeathQueued
+@dataclass(frozen=True, slots=True)
+class DecisionEvaluationQueued:
+    """Request evaluation after observing a turn's outcome window."""
+
+    replay_id: ReplayId
+    decision_tick: Tick
+    evaluation_tick: Tick
+
+
+AnalysisMessage: TypeAlias = TurnObserved | DeathQueued | DecisionEvaluationQueued
