@@ -37,8 +37,9 @@ from typed_errs import Err, Nothing, Option, Some
 from delete_me.analyze.coaching_main import run as run_coaching
 from delete_me.analyze.live_main import run as run_live
 from delete_me.analyze.replay_main import run as run_replay
+from delete_me.analyze.scheduler_main import run as run_scheduler
 
-CASES = ["graph", "tunnel", "coaching", "replay", "live"]
+CASES = ["graph", "tunnel", "coaching", "replay", "scheduler", "live"]
 
 
 @dataclass
@@ -368,6 +369,8 @@ def run(args: AnalyzeArgs) -> int:
         return run_coaching()
     if args.case == "replay":
         return run_replay()
+    if args.case == "scheduler":
+        return run_scheduler()
     if args.case == "tunnel":
         return run_tunnel()
     return run_graph(args)
