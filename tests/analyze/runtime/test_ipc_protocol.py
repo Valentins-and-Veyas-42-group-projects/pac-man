@@ -1,16 +1,25 @@
 import pytest
+from pacman.analyze.messages import DeathQueued, DecisionEvaluationQueued, TurnObserved
 from pacman.analyze.runtime.ipc_protocol import (
+    ANALYSIS_MESSAGE,
     HEADER,
     U64_MAX,
+    AnalysisProduced,
     AnalyzeBatch,
+    BatchReleased,
     IpcProtocolError,
     MessageTag,
     Sequence,
     StopWorker,
     TransferId,
+    WorkerFailed,
     decode_command,
+    decode_output,
     encode_command,
+    encode_output,
 )
+from pacman.analyze.runtime.runtime import AnalysisRuntimeError
+from pacman.replay.models import ReplayId, Tick
 from typed_errs import Err
 
 
@@ -101,3 +110,41 @@ def test_decode_rejects_zero_sized_batch() -> None:
 
     assert isinstance(result, Err)
     assert result.error is IpcProtocolError.INVALID_PAYLOAD_SIZE
+
+
+@pytest.mark.parametrize(
+    "output",
+    [
+        BatchReleased(TransferId(5), Sequence(8)),
+        AnalysisProduced(
+            Sequence(9),
+            (
+                TurnObserved(ReplayId(3), Tick(10)),
+                DeathQueued(ReplayId(3), Tick(11)),
+                DecisionEvaluationQueued(ReplayId(3), Tick(12), Tick(42)),
+            ),
+        ),
+        AnalysisProduced(Sequence(10), ()),
+        WorkerFailed(AnalysisRuntimeError.LOOP_FAILED),
+    ],
+)
+def test_output_round_trip(output: BatchReleased | AnalysisProduced | WorkerFailed) -> None:
+    encoded = encode_output(output).unwrap()
+
+    assert decode_output(encoded).unwrap() == output
+
+
+def test_decode_output_rejects_incorrect_nested_payload_size() -> None:
+    payload = HEADER.pack(MessageTag.ANALYSIS_PRODUCED, 1, 1, 0) + bytes(ANALYSIS_MESSAGE.size)
+
+    result = decode_output(payload)
+
+    assert isinstance(result, Err)
+    assert result.error is IpcProtocolError.MALFORMED_MESSAGE
+
+
+def test_decode_output_rejects_unknown_runtime_error() -> None:
+    result = decode_output(HEADER.pack(MessageTag.WORKER_FAILED, 255, 0, 0))
+
+    assert isinstance(result, Err)
+    assert result.error is IpcProtocolError.INVALID_RUNTIME_ERROR
