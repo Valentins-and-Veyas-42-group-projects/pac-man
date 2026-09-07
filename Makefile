@@ -6,7 +6,6 @@ MAIN ?= pac-man.py
 ARGS ?= config.json
 
 MYPY_FLAGS = --warn-return-any --warn-unused-ignores --ignore-missing-imports --disallow-untyped-defs --check-untyped-defs
-FLAKE8_FLAGS = --max-line-length=79 --exclude=.venv,.git,__pycache__,.mypy_cache,.pytest_cache,dist,build
 
 FLAKE8 = uv run flake8
 MYPY = uv run mypy
@@ -30,11 +29,11 @@ clean:
 	find . -type f \( -name "*.pyc" -o -name "*.pyo" \) -delete
 
 lint:
-	$(FLAKE8) $(FLAKE8_FLAGS) .
+	$(FLAKE8) .
 	$(MYPY) pacman $(MYPY_FLAGS)
 
 lint-strict:
-	$(FLAKE8) $(FLAKE8_FLAGS) .
+	$(FLAKE8) .
 	$(MYPY) pacman --strict
 
 test:
