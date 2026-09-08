@@ -57,6 +57,7 @@ def test_worker_processes_batches_and_preserves_messages_through_close() -> None
     worker.close().unwrap()
 
     assert worker.status is WorkerStatus.CLOSED
+    assert worker.in_flight == {}
     assert worker.drain() == (
         TurnObserved(ReplayId(7), Tick(11)),
         DecisionEvaluationQueued(ReplayId(7), Tick(11), Tick(41)),

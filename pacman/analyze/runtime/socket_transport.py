@@ -37,6 +37,8 @@ class SocketTransportError(Enum):
     MISSING_DESCRIPTOR = "missing_descriptor"
     UNEXPECTED_DESCRIPTOR = "unexpected_descriptor"
     TOO_MANY_DESCRIPTORS = "too_many_descriptors"
+    WOULD_BLOCK = "would_block"
+    PEER_CLOSED = "peer_closed"
 
 
 def socket_transport_err(error: SocketTransportError) -> Err[SocketTransportError]:
@@ -104,6 +106,8 @@ def send_command(
 
     try:
         sent = connection.sendmsg([encoded], ancillary)
+    except BlockingIOError:
+        return socket_transport_err(SocketTransportError.WOULD_BLOCK)
     except (OSError, ValueError):
         return socket_transport_err(SocketTransportError.SEND_FAILED)
     if sent != len(encoded):
@@ -121,6 +125,8 @@ def receive_command(
     """
     try:
         payload, ancillary, flags, _ = connection.recvmsg(HEADER.size, ANCILLARY_SIZE)
+    except BlockingIOError:
+        return socket_transport_err(SocketTransportError.WOULD_BLOCK)
     except (OSError, ValueError):
         return socket_transport_err(SocketTransportError.RECEIVE_FAILED)
 
@@ -168,6 +174,8 @@ def send_output(
     )
     try:
         sent = connection.send(encoded)
+    except BlockingIOError:
+        return socket_transport_err(SocketTransportError.WOULD_BLOCK)
     except (OSError, ValueError):
         return socket_transport_err(SocketTransportError.SEND_FAILED)
     if sent != len(encoded):
@@ -186,8 +194,12 @@ def receive_output(
     """
     try:
         payload, _, flags, _ = connection.recvmsg(MAX_OUTPUT_PACKET_SIZE)
+    except BlockingIOError:
+        return socket_transport_err(SocketTransportError.WOULD_BLOCK)
     except (OSError, ValueError):
         return socket_transport_err(SocketTransportError.RECEIVE_FAILED)
+    if not payload:
+        return socket_transport_err(SocketTransportError.PEER_CLOSED)
     if flags & socket.MSG_TRUNC:
         return socket_transport_err(SocketTransportError.TRUNCATED_MESSAGE)
 
