@@ -2,7 +2,7 @@
 
 from collections.abc import Awaitable
 from dataclasses import dataclass
-from typing import TypeAlias, cast, final
+from typing import Protocol, TypeAlias, cast, final
 
 from python_crimes import match_, type_
 from typed_concurrency import Channel, thread
@@ -29,6 +29,13 @@ WriterCommand: TypeAlias = Append | Finish
 WriterChannel: TypeAlias = Channel[WriterCommand]
 
 
+class WriterSink(Protocol):
+    """Accept replay writer commands."""
+
+    async def send(self, command: WriterCommand, /) -> None:
+        """Send one command to replay persistence."""
+
+
 @final
 class ReplayWriter:
     """Serialize replay persistence on a background worker."""
@@ -53,14 +60,7 @@ class ReplayWriter:
         async for command in self._channel:
             action = cast(
                 Awaitable[None],
-                (
-                    match_(command)
-                    .case(type_(Append))
-                    .then(self._append)
-                    .case(type_(Finish))
-                    .then(self._finish)
-                    .value
-                ),
+                (match_(command).case(type_(Append)).then(self._append).case(type_(Finish)).then(self._finish).value),
             )
 
             await action

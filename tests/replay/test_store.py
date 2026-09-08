@@ -49,9 +49,7 @@ def test_maze_roundtrip(store: ReplayStore, maze: EncodedMaze) -> None:
     assert store.maze(maze_id).unwrap() == maze
 
 
-def test_replay_metadata_roundtrip_and_finish(
-    store: ReplayStore, replay: tuple[MazeId, ReplayId]
-) -> None:
+def test_replay_metadata_roundtrip_and_finish(store: ReplayStore, replay: tuple[MazeId, ReplayId]) -> None:
     """Replay metadata loads and records completion."""
     maze_id, replay_id = replay
     metadata = store.replay(replay_id).unwrap()
@@ -75,9 +73,24 @@ def test_frame_roundtrip(store: ReplayStore, replay: tuple[MazeId, ReplayId]) ->
     assert store.frame(replay_id, Tick(0)).unwrap() == expected
 
 
-def test_snapshot_applies_collectible_history(
-    store: ReplayStore, replay: tuple[MazeId, ReplayId]
+def test_bulk_batch_reconstructs_analysis_input(
+    store: ReplayStore,
+    replay: tuple[MazeId, ReplayId],
 ) -> None:
+    """The latest replay reloads through the same immutable batch boundary."""
+    _, replay_id = replay
+    expected = FrameBatch(
+        replay_id,
+        (frame(0), frame(1)),
+        (CollectibleChange(Tick(1), TileIndex(1), Collectible.NONE),),
+    )
+    store.append(expected).unwrap()
+
+    assert store.latest_replay_id().unwrap() == replay_id
+    assert store.batch(replay_id).unwrap() == expected
+
+
+def test_snapshot_applies_collectible_history(store: ReplayStore, replay: tuple[MazeId, ReplayId]) -> None:
     """Snapshots apply every collectible change through the requested tick."""
     _, replay_id = replay
     first = frame(0)
