@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from typing import final
 
 from .models import CollectibleChange, Frame, FrameBatch, ReplayId
-from .writer import Append, Finish, WriterChannel
+from .writer import Append, Finish, WriterSink
 
 DEFAULT_BUFFER_SIZE = 256
 
@@ -15,7 +15,7 @@ class Recorder:
     """Buffer replay events and dispatch work to the replay writer."""
 
     replay_id: ReplayId
-    chan: WriterChannel
+    chan: WriterSink
     buf_size: int = DEFAULT_BUFFER_SIZE
 
     _frames: list[Frame] = field(

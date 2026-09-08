@@ -1,5 +1,11 @@
+# Generate and save a replay:
+# uv run python -m delete_me.analyze.main --case pipeline --width 31 --height 31 --seconds 600 --speed 100 --seed 42 --fumble_rate 0.12  # noqa: E501
+# Analyze the saved replay:
+# uv run python -m delete_me.analyze.main --case saved --analysis_limit 5
+# Inspect accumulated experiment results:
+# uv run python -m delete_me.analyze.main --case history
+# Inspect maze graph construction:
 # uv run python -m delete_me.analyze.main --case graph --width 9 --height 7
-# Made by Codex as a disposable graph inspection runner.
 
 """Generate a maze, build its analysis graph, and render the adjacency."""
 
@@ -34,12 +40,17 @@ from pacman.replay.models import (
 )
 from typed_errs import Err, Nothing, Option, Some
 
-from delete_me.analyze.coaching_main import run as run_coaching
-from delete_me.analyze.live_main import run as run_live
-from delete_me.analyze.replay_main import run as run_replay
-from delete_me.analyze.scheduler_main import run as run_scheduler
+from delete_me.analyze.pipeline_main import run as run_pipeline
+from delete_me.analyze.pipeline_main import show_history
+from delete_me.analyze.saved_main import run as run_saved
 
-CASES = ["graph", "tunnel", "coaching", "replay", "scheduler", "live"]
+CASES = [
+    "graph",
+    "tunnel",
+    "pipeline",
+    "history",
+    "saved",
+]
 
 
 @dataclass
@@ -53,6 +64,16 @@ class AnalyzeArgs:
     width: int = cast(int, arg(help="Maze width", default=9))
     height: int = cast(int, arg(help="Maze height", default=7))
     seed: int = cast(int, arg(help="Random seed; use 0 for random", default=42))
+    seconds: int = cast(int, arg(help="Pipeline game length in simulated seconds", default=120))
+    speed: float = cast(float, arg(help="Pipeline playback speed multiplier", default=100.0))
+    fumble_rate: float = cast(
+        float,
+        arg(help="Chance of deliberately choosing the worst move", default=0.08),
+    )
+    analysis_limit: int = cast(
+        int,
+        arg(help="Worst saved plays shown per mistake class", default=5),
+    )
     origin: int = cast(int, arg(help="Path origin tile", default=0))
     destination: int = cast(
         int,
@@ -190,11 +211,7 @@ def run_graph(args: AnalyzeArgs) -> int:
         graph.print_diagnostic()
         return 1
 
-    destination = (
-        TileIndex(len(graph.value.moves) - 1)
-        if args.destination == -1
-        else TileIndex(args.destination)
-    )
+    destination = TileIndex(len(graph.value.moves) - 1) if args.destination == -1 else TileIndex(args.destination)
     origin = TileIndex(args.origin)
     field = bfs(graph.value, origin)
     if isinstance(field, Err):
@@ -274,10 +291,7 @@ def run_graph(args: AnalyzeArgs) -> int:
     print(f"nodes:          {len(graph.value.moves)}")
     print(f"directed edges: {edge_count}")
     print(f"connections:    {edge_count // 2}")
-    print(
-        "wrap edges:     "
-        + str(sum(move.wraparound for moves in graph.value.moves for move in moves))
-    )
+    print("wrap edges:     " + str(sum(move.wraparound for moves in graph.value.moves for move in moves)))
     print(f"path:           {origin} -> {destination}")
     print(f"distance:       {path.value.distance}")
     print(f"tiles:          {tuple(int(tile) for tile in path.value.tiles)}")
@@ -300,11 +314,7 @@ def run_graph(args: AnalyzeArgs) -> int:
     print()
     print("legal action options:")
     for option in options.value:
-        margin = (
-            "none"
-            if isinstance(option.minimum_margin, Nothing)
-            else str(option.minimum_margin.value)
-        )
+        margin = "none" if isinstance(option.minimum_margin, Nothing) else str(option.minimum_margin.value)
         print(
             f"  {option.action.name:<5} first={option.first_tile} "
             f"safe tiles={option.safe_tiles} intersections={option.safe_intersections} "
@@ -363,14 +373,21 @@ def run(args: AnalyzeArgs) -> int:
     Returns:
         The selected demonstration's process status.
     """
-    if args.case == "live":
-        return asyncio.run(run_live())
-    if args.case == "coaching":
-        return run_coaching()
-    if args.case == "replay":
-        return run_replay()
-    if args.case == "scheduler":
-        return run_scheduler()
+    if args.case == "pipeline":
+        return asyncio.run(
+            run_pipeline(
+                args.width,
+                args.height,
+                args.seed,
+                args.seconds,
+                args.speed,
+                args.fumble_rate,
+            )
+        )
+    if args.case == "history":
+        return show_history()
+    if args.case == "saved":
+        return run_saved(args.analysis_limit)
     if args.case == "tunnel":
         return run_tunnel()
     return run_graph(args)

@@ -12,6 +12,8 @@ from sqlite_callback_store import (
 from typed_errs import Err, Ok, Result
 
 from .models import (
+    Collectible,
+    CollectibleChange,
     Coord,
     Direction,
     EncodedMaze,
@@ -30,16 +32,13 @@ from .models import (
     ReplayMetadata,
     Score,
     Tick,
+    TileIndex,
 )
 
 
 def _schema() -> str:
     """Load the bundled replay SQLite schema."""
-    return (
-        files("pacman.replay")
-        .joinpath("schema.sql")
-        .read_text(encoding="utf-8")
-    )
+    return files("pacman.replay").joinpath("schema.sql").read_text(encoding="utf-8")
 
 
 class ReplayStore(SQLiteStore):
@@ -240,6 +239,115 @@ class ReplayStore(SQLiteStore):
 
         return self.transaction(select)
 
+    def latest_replay_id(self) -> Result[ReplayId, StorageError]:
+        """Load the newest replay identifier.
+
+        Returns:
+            Latest replay identifier or a typed not-found/storage error.
+        """
+
+        def select(transaction: Transaction) -> Result[ReplayId, StorageError]:
+            try:
+                row = cast(
+                    "tuple[int] | None",
+                    transaction.connection.execute("SELECT id FROM replay ORDER BY id DESC LIMIT 1").fetchone(),
+                )
+                if row is None:
+                    return Err(
+                        error=StorageError.OPERATION_FAILED,
+                        namespace="replay_store",
+                        context_msg="No saved replay exists",
+                    )
+                return Ok(ReplayId(row[0]))
+            except Exception:
+                return Err(
+                    error=StorageError.QUERY_FAILED,
+                    namespace="replay_store",
+                    context_msg="Failed to load latest replay identifier",
+                )
+
+        return self.transaction(select)
+
+    def batch(self, replay_id: ReplayId) -> Result[FrameBatch, StorageError]:
+        """Load an entire replay as one analysis-ready batch.
+
+        Returns:
+            Ordered frames and collectible changes or a typed storage error.
+        """
+
+        def select(transaction: Transaction) -> Result[FrameBatch, StorageError]:
+            try:
+                frame_rows = cast(
+                    "list[tuple[int, int, int, int, int, int, int]]",
+                    transaction.connection.execute(
+                        """
+                        SELECT tick, pac_x, pac_y, pac_dir, score, lives, phase
+                        FROM frame WHERE replay_id = ? ORDER BY tick
+                        """,
+                        (int(replay_id),),
+                    ).fetchall(),
+                )
+                if not frame_rows:
+                    return Err(
+                        error=StorageError.OPERATION_FAILED,
+                        namespace="replay_store",
+                        context_msg="Replay contains no frames",
+                    )
+                ghost_rows = cast(
+                    "list[tuple[int, int, int, int, int, int]]",
+                    transaction.connection.execute(
+                        """
+                        SELECT tick, ghost, x, y, direction, state
+                        FROM ghost_frame WHERE replay_id = ? ORDER BY tick, ghost
+                        """,
+                        (int(replay_id),),
+                    ).fetchall(),
+                )
+                ghosts_by_tick: dict[int, list[GhostFrame]] = {}
+                for tick, ghost, x, y, direction, state in ghost_rows:
+                    ghosts_by_tick.setdefault(tick, []).append(
+                        GhostFrame(
+                            Ghost(ghost),
+                            Position(Coord(x), Coord(y)),
+                            Direction(direction),
+                            GhostState(state),
+                        )
+                    )
+                frames = tuple(
+                    Frame(
+                        Tick(tick),
+                        PlayerFrame(Position(Coord(x), Coord(y)), Direction(direction)),
+                        tuple(ghosts_by_tick.get(tick, ())),
+                        Score(score),
+                        lives,
+                        GamePhase(phase),
+                    )
+                    for tick, x, y, direction, score, lives, phase in frame_rows
+                )
+                change_rows = cast(
+                    "list[tuple[int, int, int]]",
+                    transaction.connection.execute(
+                        """
+                        SELECT tick, tile, collectible FROM collectible_change
+                        WHERE replay_id = ? ORDER BY tick, tile
+                        """,
+                        (int(replay_id),),
+                    ).fetchall(),
+                )
+                changes = tuple(
+                    CollectibleChange(Tick(tick), TileIndex(tile), Collectible(collectible))
+                    for tick, tile, collectible in change_rows
+                )
+                return Ok(FrameBatch(replay_id, frames, changes))
+            except Exception:
+                return Err(
+                    error=StorageError.QUERY_FAILED,
+                    namespace="replay_store",
+                    context_msg="Failed to load replay batch",
+                )
+
+        return self.transaction(select)
+
     def finish(
         self,
         replay_id: ReplayId,
@@ -322,9 +430,7 @@ class ReplayStore(SQLiteStore):
                     for change in batch.collectible_changes
                 )
 
-                _ = transaction.connection.executemany(
-                    INSERT_FRAME, frame_rows
-                )
+                _ = transaction.connection.executemany(INSERT_FRAME, frame_rows)
                 _ = transaction.connection.executemany(
                     INSERT_GHOST_FRAME,
                     ghost_rows,
@@ -446,9 +552,7 @@ class ReplayStore(SQLiteStore):
                         (int(replay_id), int(tick)),
                     ).fetchall(),
                 )
-                collectibles = bytearray(
-                    encoded_maze.value.initial_collectibles
-                )
+                collectibles = bytearray(encoded_maze.value.initial_collectibles)
 
                 for tile, collectible in changes:
                     byte_index = tile // 4
@@ -461,9 +565,7 @@ class ReplayStore(SQLiteStore):
 
                     shift = tile % 4 * 2
                     mask = 0b11 << shift
-                    collectibles[byte_index] = (
-                        collectibles[byte_index] & ~mask
-                    ) | (collectible << shift)
+                    collectibles[byte_index] = (collectibles[byte_index] & ~mask) | (collectible << shift)
 
                 maze = Maze(
                     id=replay.value.maze_id,
