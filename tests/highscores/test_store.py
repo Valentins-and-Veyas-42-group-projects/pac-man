@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 from pacman.highscores.store import HighscoreError, HighscoreStore
+from pacman.highscores.turso import TursoHighscoreStore
 from pacman.models import HighscoreEntry
 from typed_errs import Err, Some
 
@@ -63,3 +64,13 @@ def test_uninitialized_store_returns_storage_diagnostic(database_path: Path) -> 
     assert isinstance(result, Err)
     assert result.error == HighscoreError.STORAGE_FAILED
     assert isinstance(result.diagnostic, Some)
+
+
+def test_turso_highscores_use_the_existing_store_contract(database_path: Path) -> None:
+    """The optional Turso adapter persists and orders real scores."""
+    pytest.importorskip("turso")
+    store = TursoHighscoreStore(database_path)
+    store.initialize_highscores().unwrap()
+    store.save(HighscoreEntry("Veya", 42)).unwrap()
+
+    assert store.load_top(10).unwrap() == [HighscoreEntry("Veya", 42)]

@@ -1,5 +1,6 @@
 """Unit tests for replay persistence and reconstruction."""
 
+import pytest
 from pacman.replay.models import (
     Collectible,
     CollectibleChange,
@@ -21,6 +22,7 @@ from pacman.replay.models import (
     TileIndex,
 )
 from pacman.replay.store import ReplayStore
+from pacman.replay.turso import TursoReplayStore
 from typed_errs import Err
 
 
@@ -113,3 +115,17 @@ def test_missing_records_return_errors(store: ReplayStore) -> None:
     assert isinstance(store.replay(ReplayId(999)), Err)
     assert isinstance(store.frame(ReplayId(999), Tick(0)), Err)
     assert isinstance(store.finish(ReplayId(999)), Err)
+
+
+def test_turso_replay_store_roundtrip(tmp_path, maze: EncodedMaze) -> None:
+    """The optional Turso adapter persists real replay-domain values."""
+    pytest.importorskip("turso")
+    store = TursoReplayStore(tmp_path / "turso-replay.db")
+    store.initialize_replay().unwrap()
+    maze_id = store.create_maze(maze).unwrap()
+    replay_id = store.create_replay(maze_id, 60, 1, 2, b"config-hash", 42).unwrap()
+    expected = frame()
+
+    store.append(FrameBatch(replay_id, (expected,), ())).unwrap()
+
+    assert store.frame(replay_id, Tick(0)).unwrap() == expected

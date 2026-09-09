@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import cast
 
 from python_crimes import pipe
-from sqlite_callback_store import SQLiteStore, StorageError, Transaction
+from sqlite_callback_store import SQLiteStore, StorageError, StoreOptions, Transaction
 from typed_errs import Diagnostic, Err, Ok, Result, Some, catch_bubble
 
 from pacman.models import HighscoreEntry
@@ -82,9 +82,14 @@ LIMIT ?
 class HighscoreStore(SQLiteStore):
     """Loads and saves the persistent top-10 highscore table."""
 
-    def __init__(self, db_path: str | Path) -> None:
+    def __init__(
+        self,
+        db_path: str | Path,
+        *,
+        options: StoreOptions | None = None,
+    ) -> None:
         """Create a store for the given database path."""
-        super().__init__(db_path)
+        super().__init__(db_path, options=options)
 
     @catch_bubble
     def initialize_highscores(self) -> Result[None, HighscoreError]:
@@ -93,12 +98,7 @@ class HighscoreStore(SQLiteStore):
         Returns:
             Success or a diagnosed storage failure.
         """
-        _ = (
-            self
-            .initialize(SCHEMA)
-            .map_err_with(_storage_err.with_(operation="initialize the highscore database"))
-            .q
-        )
+        _ = self.initialize(SCHEMA).map_err_with(_storage_err.with_(operation="initialize the highscore database")).q
         return Ok(None)
 
     @catch_bubble
@@ -151,12 +151,7 @@ class HighscoreStore(SQLiteStore):
             return Ok(None)
 
         valid_entry = (entry @ _validate_entry).q
-        _ = (
-            self
-            .transaction(insert)
-            .map_err_with(_storage_err.with_(operation="save the highscore"))
-            .q
-        )
+        _ = self.transaction(insert).map_err_with(_storage_err.with_(operation="save the highscore")).q
         return Ok(None)
 
 

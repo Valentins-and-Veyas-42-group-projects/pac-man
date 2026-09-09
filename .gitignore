@@ -13,4 +13,5 @@ build/
 .local/
 *.db
 *.sqlite3
-en.subject.pdf
+*.pdf
+/docs/browser-port-plan.md

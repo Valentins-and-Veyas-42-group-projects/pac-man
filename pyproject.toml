@@ -9,11 +9,14 @@ dependencies = [
     "mazegenerator==2.1.0",
     "pygame>=2.5",
     "python-crimes>=0.0.5,<1",
-    "sqlite-callback-store>=0.0.4",
+    "sqlite-callback-store>=0.0.8",
     "typed-errs>=0.0.4",
     "typed-file-io>=0.0.4",
     "typed-concurrency>=0,<1",
 ]
+
+[project.optional-dependencies]
+turso = ["sqlite-callback-store[turso]>=0.0.8,<1"]
 
 [tool.uv.sources]
 mazegenerator = { path = "vendor/mazegenerator-2.1.0-py3-none-any.whl" }
