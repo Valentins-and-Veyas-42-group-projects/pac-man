@@ -345,6 +345,11 @@ dependencies = [
     { name = "typed-file-io" },
 ]
 
+[package.optional-dependencies]
+turso = [
+    { name = "sqlite-callback-store", extra = ["turso"] },
+]
+
 [package.dev-dependencies]
 dev = [
     { name = "flake8" },
@@ -361,11 +366,13 @@ requires-dist = [
     { name = "mazegenerator", path = "vendor/mazegenerator-2.1.0-py3-none-any.whl" },
     { name = "pygame", specifier = ">=2.5" },
     { name = "python-crimes", specifier = ">=0.0.5,<1" },
-    { name = "sqlite-callback-store", specifier = ">=0.0.4" },
+    { name = "sqlite-callback-store", specifier = ">=0.0.8" },
+    { name = "sqlite-callback-store", extras = ["turso"], marker = "extra == 'turso'", specifier = ">=0.0.8,<1" },
     { name = "typed-concurrency", specifier = ">=0,<1" },
     { name = "typed-errs", specifier = ">=0.0.4" },
     { name = "typed-file-io", specifier = ">=0.0.4" },
 ]
+provides-extras = ["turso"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -479,6 +486,21 @@ wheels = [
 ]
 
 [[package]]
+name = "pyturso"
+version = "0.7.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/23/00/b92f81e67af1e1d0ee59b1462cbb5de21339e637ca415f9ebbd0ca8ab6fb/pyturso-0.7.2.tar.gz", hash = "sha256:4d912f53338af195c3bc343b02c4450ae1a0be9892835aa7f962ec49b730ef9f", size = 2859978, upload-time = "2026-07-30T13:49:20.479Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/f4/5a/e1cdc67f3d7d7883207a0626a7baa4ed8379fb284506b3ed76e8c9a814d9/pyturso-0.7.2-cp310-abi3-macosx_10_12_x86_64.whl", hash = "sha256:5399a4f500733bac23ccb89398fd0f6003e272a760dcb677a785ac2d32e69e20", size = 8789891, upload-time = "2026-07-30T13:49:09.746Z" },
+    { url = "https://files.pythonhosted.org/packages/e8/66/c2b259b658df748580aa81cb3da2cca654815b3458d30e9a9a06beefd0c9/pyturso-0.7.2-cp310-abi3-macosx_11_0_arm64.whl", hash = "sha256:ccae747300b7cc7f3e815dbbce3ca66bca489c9ab81e5f4bc9e3ac973a59501b", size = 7793367, upload-time = "2026-07-30T13:49:12.396Z" },
+    { url = "https://files.pythonhosted.org/packages/60/a2/56b941cdde449c221b9b5bcf76807eba9dd8cb640d3798951449367b2711/pyturso-0.7.2-cp310-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:76df85d56c485ff170542321a20fd73a72c6995264753c39952fe482d778de08", size = 26032040, upload-time = "2026-07-30T13:49:14.809Z" },
+    { url = "https://files.pythonhosted.org/packages/a5/46/33c1b5b5ef2074bcca64107c4082fe7a775119e084e6ee65ffc53b2caa71/pyturso-0.7.2-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:e324ccdf1b9d718abbb26a789ba061d554bb8a7c3fca162fdafdb398dee10aeb", size = 26555827, upload-time = "2026-07-30T13:49:17.578Z" },
+]
+
+[[package]]
 name = "ruff"
 version = "0.16.2"
 source = { registry = "https://pypi.org/simple" }
@@ -505,14 +527,20 @@ wheels = [
 
 [[package]]
 name = "sqlite-callback-store"
-version = "0.0.4"
+version = "0.0.8"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
+    { name = "python-crimes" },
     { name = "typed-errs" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/de/83/e88215d803146c4bf304f98e67fe241c2a139900cb23c8338110d5fb8a79/sqlite_callback_store-0.0.4.tar.gz", hash = "sha256:2b9e56311808b12914da29f9a6bfc89ec8b3c88201a8e0edef331808024bba52", size = 5982, upload-time = "2026-08-09T17:26:08.16Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ff/68/70ff0310dfeb93ff892d7cfdbe33d9d3cd1260b0d8a935ba1dca21e512eb/sqlite_callback_store-0.0.8.tar.gz", hash = "sha256:aedd80d80d76be542e90c9932218f82b8bc1c03537bf4b1348c8b6416ae91ede", size = 9699, upload-time = "2026-09-09T23:50:52.577Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/8a/c1/f6f27499e564fba2bbfeae07b9edebc7f573c3c34ee572745f6053788594/sqlite_callback_store-0.0.4-py3-none-any.whl", hash = "sha256:9769cbca41ff03853a99acfbe4df7d251ebb0911c2ca363922569f69f370d0ac", size = 6037, upload-time = "2026-08-09T17:26:06.992Z" },
+    { url = "https://files.pythonhosted.org/packages/12/78/079da56427a24027e02d2773ec47e650455b3f5b96dcbb27f4dc59e35dc6/sqlite_callback_store-0.0.8-py3-none-any.whl", hash = "sha256:400b39e33d360b46957f21abfc3976a469d4db368f1a38bba6e14465cf4ce593", size = 7960, upload-time = "2026-09-09T23:50:51.39Z" },
+]
+
+[package.optional-dependencies]
+turso = [
+    { name = "pyturso" },
 ]
 
 [[package]]
