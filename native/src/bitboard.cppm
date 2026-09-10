@@ -8,6 +8,15 @@ module;
 
 export module pacman.bitboard;
 
+// One bit tells us whether a maze tile belongs to a set.
+// The bits sit next to each other in 64-bit words, ready for fast set math.
+//
+// tile      0   1   2   3          63     64  65
+//          +---+---+---+---+       +---+  +---+---+
+// present  | 1 | 0 | 1 | 1 |  ...  | 0 |  | 1 | 0 | ...
+//          +---+---+---+---+       +---+  +---+---+
+//          <---------- word 0 ---------->  <-- word 1
+
 import pacman.kernel.scalar;
 import pacman.types;
 
