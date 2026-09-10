@@ -54,6 +54,74 @@ class NativePathfinding:
             ctypes.c_size_t,
         ]
         library.pac_bfs_distances.restype = ctypes.c_int
+        library.pac_bfs_distances_graph.argtypes = [
+            ctypes.POINTER(PacTileNeighbors),
+            ctypes.c_size_t,
+            ctypes.c_uint16,
+            ctypes.POINTER(ctypes.c_uint32),
+            ctypes.c_size_t,
+        ]
+        library.pac_bfs_distances_graph.restype = ctypes.c_int
+        library.pac_topology_create.argtypes = [
+            ctypes.POINTER(PacTileNeighbors),
+            ctypes.c_size_t,
+            ctypes.c_size_t,
+            ctypes.POINTER(ctypes.c_void_p),
+        ]
+        library.pac_topology_create.restype = ctypes.c_int
+        library.pac_topology_destroy.argtypes = [ctypes.c_void_p]
+        library.pac_topology_destroy.restype = None
+        library.pac_topology_bfs_distances.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_uint16,
+            ctypes.POINTER(ctypes.c_uint32),
+            ctypes.c_size_t,
+        ]
+        library.pac_topology_bfs_distances.restype = ctypes.c_int
+        self._topologies: dict[int, tuple[MazeGraph, ctypes.c_void_p]] = {}
+
+    @staticmethod
+    def _encode(graph: MazeGraph) -> Option[ctypes.Array[PacTileNeighbors]]:
+        """Encode one immutable Python graph for the C boundary.
+
+        Returns:
+            Encoded C records, or Nothing for an unsupported graph.
+        """
+        tile_count = len(graph.moves)
+        encoded = (PacTileNeighbors * tile_count)()
+        for tile, moves in enumerate(graph.moves):
+            if len(moves) > 4:
+                return Nothing()
+            encoded[tile].count = len(moves)
+            for index, move in enumerate(moves):
+                encoded[tile].moves[index] = PacMove(int(move.destination), int(move.direction), int(move.wraparound))
+        return Some(encoded)
+
+    @staticmethod
+    def _decode(output: ctypes.Array[ctypes.c_uint32]) -> tuple[int, ...]:
+        """Translate the native unreachable sentinel into the Python value.
+
+        Returns:
+            Distances using negative one for unreachable tiles.
+        """
+        return tuple(-1 if value == NATIVE_UNREACHABLE else int(value) for value in output)
+
+    def _topology_for(self, graph: MazeGraph) -> Option[ctypes.c_void_p]:
+        """Return a cached owned topology, constructing it only once."""
+        cached = self._topologies.get(id(graph))
+        if cached is not None:
+            cached_graph, pointer = cached
+            if cached_graph is graph:
+                return Some(pointer)
+        encoded = self._encode(graph)
+        if isinstance(encoded, Nothing):
+            return Nothing()
+        pointer = ctypes.c_void_p()
+        status = self._library.pac_topology_create(encoded.value, len(graph.moves), graph.width, ctypes.byref(pointer))
+        if status != PAC_OK or pointer.value is None:
+            return Nothing()
+        self._topologies[id(graph)] = (graph, pointer)
+        return Some(pointer)
 
     def distances(
         self,
@@ -62,37 +130,50 @@ class NativePathfinding:
     ) -> Option[tuple[int, ...]]:
         """Return native distances, or Nothing when native execution fails."""
         try:
+            topology = self._topology_for(graph)
+            if isinstance(topology, Nothing):
+                return Nothing()
             tile_count = len(graph.moves)
-            encoded = (PacTileNeighbors * tile_count)()
-
-            for tile, moves in enumerate(graph.moves):
-                if len(moves) > 4:
-                    return Nothing()
-
-                encoded[tile].count = len(moves)
-                for index, move in enumerate(moves):
-                    encoded[tile].moves[index] = PacMove(
-                        destination=int(move.destination),
-                        direction=int(move.direction),
-                        wraparound=int(move.wraparound),
-                    )
-
             output = (ctypes.c_uint32 * tile_count)()
-            status = self._library.pac_bfs_distances(
-                encoded,
-                tile_count,
-                graph.width,
-                int(origin),
-                output,
-                tile_count,
-            )
-
+            status = self._library.pac_topology_bfs_distances(topology.value, int(origin), output, tile_count)
             if status != PAC_OK:
                 return Nothing()
-
-            return Some(tuple(-1 if value == NATIVE_UNREACHABLE else int(value) for value in output))
-        except (ArithmeticError, ctypes.ArgumentError, TypeError, ValueError):
+            return Some(self._decode(output))
+        except Exception:
             return Nothing()
+
+    def one_shot_distances(self, graph: MazeGraph, origin: TileIndex, *, masked: bool) -> Option[tuple[int, ...]]:
+        """Run an uncached graph or masked implementation for benchmarks.
+
+        Returns:
+            Computed distances, or Nothing when the native call fails.
+        """
+        try:
+            encoded = self._encode(graph)
+            if isinstance(encoded, Nothing):
+                return Nothing()
+            count = len(graph.moves)
+            output = (ctypes.c_uint32 * count)()
+            if masked:
+                status = self._library.pac_bfs_distances(encoded.value, count, graph.width, int(origin), output, count)
+            else:
+                status = self._library.pac_bfs_distances_graph(encoded.value, count, int(origin), output, count)
+            return Some(self._decode(output)) if status == PAC_OK else Nothing()
+        except Exception:
+            return Nothing()
+
+    def close(self) -> None:
+        """Release every cached native topology."""
+        for _, topology in self._topologies.values():
+            self._library.pac_topology_destroy(topology)
+        self._topologies.clear()
+
+    def __del__(self) -> None:
+        """Release cached native ownership during interpreter cleanup."""
+        try:
+            self.close()
+        except Exception:
+            pass
 
 
 def _library_candidates() -> tuple[str, ...]:

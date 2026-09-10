@@ -17,7 +17,7 @@ MYPY = uv run mypy
 PYTEST = uv run pytest
 TY = uv run ty
 
-.PHONY: all install run debug clean lint lint-strict test typecheck native native-test wasm wasm-test package
+.PHONY: all install run debug clean lint lint-strict test typecheck native native-test native-benchmark wasm wasm-test package
 
 all: install $(CPP_TARGET)
 
@@ -57,6 +57,11 @@ native-test:
 	xmake f -c -m release --toolchain=clang
 	xmake build pacman-native-tests
 	xmake run pacman-native-tests
+
+native-benchmark:
+	xmake f -c -m release --toolchain=clang
+	xmake build pacman-native
+	uv run python -m delete_me.analyze.pathfinding_benchmark
 
 wasm-test:
 	xmake f -c -p wasm -a wasm32 -m release

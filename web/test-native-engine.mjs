@@ -20,4 +20,9 @@ addMove(2, 0, 1, 3);
 
 assert.equal(engine.abiVersion(), 2);
 assert.deepEqual(engine.bfsDistances(graph, 3, 3, 0), [0, 1, 2]);
+const topology = engine.createTopology(graph, 3, 3);
+assert.notEqual(topology, 0);
+assert.deepEqual(engine.topologyBfsDistances(topology, 3, 0), [0, 1, 2]);
+assert.deepEqual(engine.topologyBfsDistances(topology, 3, 2), [2, 1, 0]);
+engine.destroyTopology(topology);
 console.log("Browser bridge: WASM BFS returned [0, 1, 2]");

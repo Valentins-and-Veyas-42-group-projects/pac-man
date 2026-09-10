@@ -37,6 +37,22 @@ class WasmBridge(Protocol):
         """Compute one distance field from a flattened C graph."""
         ...
 
+    def createTopology(  # noqa: N802
+        self, encoded: list[int], tile_count: int, width: int
+    ) -> int:
+        """Create and return an owned WASM topology handle."""
+        ...
+
+    def destroyTopology(self, topology: int) -> None:  # noqa: N802
+        """Release an owned WASM topology handle."""
+        ...
+
+    def topologyBfsDistances(  # noqa: N802
+        self, topology: int, tile_count: int, origin: int
+    ) -> WasmDistances | None:
+        """Search through a reusable topology handle."""
+        ...
+
 
 def _browser_bridge() -> Option[WasmBridge]:
     """Find the bridge only available inside the browser Python runtime.
@@ -62,9 +78,15 @@ class WasmPathfinding:
     def __init__(self, bridge: WasmBridge) -> None:
         """Retain a compatible browser bridge."""
         self._bridge = bridge
+        self._topologies: dict[int, tuple[MazeGraph, int]] = {}
 
-    def distances(self, graph: MazeGraph, origin: TileIndex) -> Option[tuple[int, ...]]:
-        """Return WASM distances, or Nothing when interop fails."""
+    @staticmethod
+    def _encode(graph: MazeGraph) -> Option[list[int]]:
+        """Encode a graph for one JavaScript boundary crossing.
+
+        Returns:
+            Flattened C records, or Nothing for an unsupported graph.
+        """
         encoded = bytearray(len(graph.moves) * TILE_SIZE)
         for tile, moves in enumerate(graph.moves):
             if len(moves) > MOVES_PER_TILE:
@@ -78,9 +100,23 @@ class WasmPathfinding:
                 encoded[move_offset + 2] = int(move.direction)
                 encoded[move_offset + 3] = int(move.wraparound)
             encoded[offset + MOVES_PER_TILE * MOVE_SIZE] = len(moves)
+        return Some(list(encoded))
 
+    def distances(self, graph: MazeGraph, origin: TileIndex) -> Option[tuple[int, ...]]:
+        """Return cached-topology WASM distances, or Nothing on failure."""
         try:
-            result = self._bridge.bfsDistances(list(encoded), len(graph.moves), graph.width, int(origin))
+            cached = self._topologies.get(id(graph))
+            if cached is None or cached[0] is not graph:
+                encoded = self._encode(graph)
+                if isinstance(encoded, Nothing):
+                    return Nothing()
+                topology = int(self._bridge.createTopology(encoded.value, len(graph.moves), graph.width))
+                if topology == 0:
+                    return Nothing()
+                self._topologies[id(graph)] = (graph, topology)
+            else:
+                topology = cached[1]
+            result = self._bridge.topologyBfsDistances(topology, len(graph.moves), int(origin))
             if result is None:
                 return Nothing()
             values = tuple(int(value) for value in result)
@@ -89,6 +125,19 @@ class WasmPathfinding:
             return Some(values)
         except Exception:
             return Nothing()
+
+    def close(self) -> None:
+        """Release every cached WASM topology."""
+        for _, topology in self._topologies.values():
+            self._bridge.destroyTopology(topology)
+        self._topologies.clear()
+
+    def __del__(self) -> None:
+        """Release cached WASM ownership during interpreter cleanup."""
+        try:
+            self.close()
+        except Exception:
+            pass
 
 
 def load_wasm_pathfinding() -> Option[WasmPathfinding]:
