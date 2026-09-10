@@ -12,7 +12,7 @@ from typed_errs import Nothing, Option, Some
 from pacman.analyze.models import MazeGraph
 from pacman.replay.models import TileIndex
 
-PACMAN_ABI_VERSION = 1
+PACMAN_ABI_VERSION = 2
 PAC_OK = 0
 NATIVE_UNREACHABLE = (1 << 32) - 1
 
@@ -48,6 +48,7 @@ class NativePathfinding:
         library.pac_bfs_distances.argtypes = [
             ctypes.POINTER(PacTileNeighbors),
             ctypes.c_size_t,
+            ctypes.c_size_t,
             ctypes.c_uint16,
             ctypes.POINTER(ctypes.c_uint32),
             ctypes.c_size_t,
@@ -80,6 +81,7 @@ class NativePathfinding:
             status = self._library.pac_bfs_distances(
                 encoded,
                 tile_count,
+                graph.width,
                 int(origin),
                 output,
                 tile_count,
@@ -88,12 +90,7 @@ class NativePathfinding:
             if status != PAC_OK:
                 return Nothing()
 
-            return Some(
-                tuple(
-                    -1 if value == NATIVE_UNREACHABLE else int(value)
-                    for value in output
-                )
-            )
+            return Some(tuple(-1 if value == NATIVE_UNREACHABLE else int(value) for value in output))
         except (ArithmeticError, ctypes.ArgumentError, TypeError, ValueError):
             return Nothing()
 
@@ -111,9 +108,7 @@ def _library_candidates() -> tuple[str, ...]:
 
     for directory in (packaged, repository / "build"):
         try:
-            candidates.extend(
-                str(path) for path in directory.glob("**/libpacman-native.*")
-            )
+            candidates.extend(str(path) for path in directory.glob("**/libpacman-native.*"))
         except OSError:
             continue
 

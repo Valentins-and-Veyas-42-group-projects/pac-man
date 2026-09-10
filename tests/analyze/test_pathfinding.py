@@ -53,8 +53,9 @@ def test_optional_distance_backend_matches_python_bfs() -> None:
 
 def test_wasm_bridge_backend_matches_python_bfs() -> None:
     class TestBridge:
-        def bfsDistances(self, encoded: list[int], tile_count: int, origin: int) -> list[int]:
+        def bfsDistances(self, encoded: list[int], tile_count: int, width: int, origin: int) -> list[int]:
             assert tile_count == 6
+            assert width == 3
             assert origin == 0
             assert len(encoded) == tile_count * 18
             return [0, 1, 2, -1, 2, -1]

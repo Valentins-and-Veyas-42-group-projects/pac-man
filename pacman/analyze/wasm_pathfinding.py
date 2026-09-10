@@ -10,7 +10,7 @@ from typed_errs import Nothing, Option, Some
 from pacman.analyze.models import MazeGraph
 from pacman.replay.models import TileIndex
 
-PACMAN_ABI_VERSION = 1
+PACMAN_ABI_VERSION = 2
 MOVES_PER_TILE = 4
 MOVE_SIZE = 4
 TILE_SIZE = MOVES_PER_TILE * MOVE_SIZE + 2
@@ -32,7 +32,7 @@ class WasmBridge(Protocol):
         ...
 
     def bfsDistances(  # noqa: N802
-        self, encoded: list[int], tile_count: int, origin: int
+        self, encoded: list[int], tile_count: int, width: int, origin: int
     ) -> WasmDistances | None:
         """Compute one distance field from a flattened C graph."""
         ...
@@ -80,7 +80,7 @@ class WasmPathfinding:
             encoded[offset + MOVES_PER_TILE * MOVE_SIZE] = len(moves)
 
         try:
-            result = self._bridge.bfsDistances(list(encoded), len(graph.moves), int(origin))
+            result = self._bridge.bfsDistances(list(encoded), len(graph.moves), graph.width, int(origin))
             if result is None:
                 return Nothing()
             values = tuple(int(value) for value in result)

@@ -18,6 +18,6 @@ addMove(1, 0, 0, 3);
 addMove(1, 1, 2, 1);
 addMove(2, 0, 1, 3);
 
-assert.equal(engine.abiVersion(), 1);
-assert.deepEqual(engine.bfsDistances(graph, 3, 0), [0, 1, 2]);
+assert.equal(engine.abiVersion(), 2);
+assert.deepEqual(engine.bfsDistances(graph, 3, 3, 0), [0, 1, 2]);
 console.log("Browser bridge: WASM BFS returned [0, 1, 2]");

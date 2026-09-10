@@ -201,6 +201,59 @@ struct tile_set_view {
     }
 };
 
+/// Writes the intersection of equally sized, already validated sets.
+inline fn bitboard_and_unchecked(const const_tile_set_view lhs,
+                                 const const_tile_set_view rhs,
+                                 tile_set_view output) noexcept -> void {
+    for (std::size_t index = 0; index < output.words.size(); ++index) {
+        output.words[index] = lhs.words[index] & rhs.words[index];
+    }
+}
+
+/// ORs a non-overlapping source shifted left into validated output storage.
+inline fn or_shift_left_unchecked(const const_tile_set_view source,
+                                  const std::size_t shift,
+                                  tile_set_view output) noexcept -> void {
+    const let word_shift = shift / bits_per_word;
+    const let bit_shift = shift % bits_per_word;
+
+    for (std::size_t source_word = 0; source_word < source.words.size();
+         ++source_word) {
+        const let destination_word = source_word + word_shift;
+        if (destination_word >= output.words.size()) {
+            break;
+        }
+
+        const let value = source.words[source_word];
+        output.words[destination_word] |= value << bit_shift;
+
+        if (bit_shift != 0 && destination_word + 1 < output.words.size()) {
+            output.words[destination_word + 1] |=
+                value >> (bits_per_word - bit_shift);
+        }
+    }
+}
+
+/// ORs a non-overlapping source shifted right into validated output storage.
+inline fn or_shift_right_unchecked(const const_tile_set_view source,
+                                   const std::size_t shift,
+                                   tile_set_view output) noexcept -> void {
+    const let word_shift = shift / bits_per_word;
+    const let bit_shift = shift % bits_per_word;
+
+    for (std::size_t source_word = word_shift;
+         source_word < source.words.size(); ++source_word) {
+        const let destination_word = source_word - word_shift;
+        const let value = source.words[source_word];
+        output.words[destination_word] |= value >> bit_shift;
+
+        if (bit_shift != 0 && destination_word != 0) {
+            output.words[destination_word - 1] |=
+                value << (bits_per_word - bit_shift);
+        }
+    }
+}
+
 /// Computes a multiword bitwise OR with the selected scalar kernel.
 void bitboard_or(const bitboard_word *lhs, const bitboard_word *rhs,
                  word_count words, bitboard_word *output) noexcept {
