@@ -14,7 +14,7 @@
 extern "C" {
 #endif
 
-#define PACMAN_ABI_VERSION 1u
+#define PACMAN_ABI_VERSION 2u
 
 typedef enum pac_status {
     PAC_OK = 0,
@@ -51,7 +51,8 @@ PAC_API pac_status pac_bitboard_or(const uint64_t *lhs, const uint64_t *rhs,
 
 /* Compute shortest distances, writing UINT32_MAX for unreachable tiles. */
 PAC_API pac_status pac_bfs_distances(const pac_tile_neighbors *tiles,
-                                     size_t tile_count, uint16_t origin,
+                                     size_t tile_count, size_t maze_width,
+                                     uint16_t origin,
                                      uint32_t *distances,
                                      size_t distance_capacity);
 

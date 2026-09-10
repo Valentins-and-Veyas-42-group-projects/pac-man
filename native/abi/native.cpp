@@ -10,6 +10,7 @@
 import pacman.bitboard;
 import pacman.bfs;
 import pacman.graph;
+import pacman.topology;
 import pacman.types;
 
 cfn PAC_API pac_abi_version(void) -> uint32_t { return PACMAN_ABI_VERSION; }
@@ -27,10 +28,11 @@ cfn PAC_API pac_bitboard_or(const uint64_t *lhs, const uint64_t *rhs,
 }
 
 cfn PAC_API pac_bfs_distances(const pac_tile_neighbors *tiles,
-                              const size_t tile_count, const uint16_t origin,
-                              uint32_t *distances,
+                              const size_t tile_count, const size_t maze_width,
+                              const uint16_t origin, uint32_t *distances,
                               const size_t distance_capacity) -> pac_status {
-    if (tile_count == 0 || tiles == nullptr || distances == nullptr) {
+    if (tile_count == 0 || maze_width == 0 || tile_count % maze_width != 0 ||
+        tiles == nullptr || distances == nullptr) {
         return PAC_INVALID_ARGUMENT;
     }
 
@@ -92,9 +94,19 @@ cfn PAC_API pac_bfs_distances(const pac_tile_neighbors *tiles,
     std::unique_ptr<pacman::bitboard_word[]> next_words{
         new (std::nothrow) pacman::bitboard_word[words]{},
     };
+    std::unique_ptr<pacman::bitboard_word[]> scratch_words{
+        new (std::nothrow) pacman::bitboard_word[words]{},
+    };
+    std::unique_ptr<pacman::bitboard_word[]> topology_words{
+        new (std::nothrow) pacman::bitboard_word[words * 4]{},
+    };
+    std::unique_ptr<pacman::topology_edge[]> exceptional_edges{
+        new (std::nothrow) pacman::topology_edge[tile_count * 4]{},
+    };
 
     if (visited_words == nullptr || frontier_words == nullptr ||
-        next_words == nullptr) {
+        next_words == nullptr || scratch_words == nullptr ||
+        topology_words == nullptr || exceptional_edges == nullptr) {
         return PAC_INTERNAL_ERROR;
     }
 
@@ -105,11 +117,23 @@ cfn PAC_API pac_bfs_distances(const pac_tile_neighbors *tiles,
         };
     };
 
-    if (!pacman::bfs_distances(
-            {.tiles = {graph_tiles.get(), tile_count}}, origin,
+    let graph = pacman::graph_view{.tiles = {graph_tiles.get(), tile_count}};
+    let topology = pacman::topology_masks{
+        .width = 0,
+        .north = {topology_words.get(), words},
+        .east = {topology_words.get() + words, words},
+        .south = {topology_words.get() + words * 2, words},
+        .west = {topology_words.get() + words * 3, words},
+        .exceptional_edges = {exceptional_edges.get(), tile_count * 4},
+        .exceptional_edge_count = 0,
+    };
+
+    if (!pacman::build_topology_masks(graph, maze_width, topology) ||
+        !pacman::bfs_distances_masked(
+            topology, tile_count, origin,
             std::span<uint32_t>{distances, tile_count},
             make_view(visited_words.get()), make_view(frontier_words.get()),
-            make_view(next_words.get()))) {
+            make_view(next_words.get()), make_view(scratch_words.get()))) {
         return PAC_INVALID_ARGUMENT;
     }
 

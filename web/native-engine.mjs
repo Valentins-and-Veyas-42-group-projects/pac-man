@@ -7,7 +7,7 @@ const MOVES_PER_TILE = 4;
 const TILE_SIZE = MOVE_SIZE * MOVES_PER_TILE + 2;
 const UNREACHABLE = 0xffffffff;
 
-function bfsDistances(flatMoves, tileCount, origin) {
+function bfsDistances(flatMoves, tileCount, width, origin) {
     const graphSize = tileCount * TILE_SIZE;
     const outputSize = tileCount * Uint32Array.BYTES_PER_ELEMENT;
     const graphPointer = module._malloc(graphSize);
@@ -29,6 +29,7 @@ function bfsDistances(flatMoves, tileCount, origin) {
         const status = module._pac_bfs_distances(
             graphPointer,
             tileCount,
+            width,
             origin,
             outputPointer,
             tileCount,

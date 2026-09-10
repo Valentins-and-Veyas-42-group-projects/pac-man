@@ -11,7 +11,142 @@ import pacman.bitboard;
 import pacman.bfs;
 import pacman.flood_fill;
 import pacman.graph;
+import pacman.topology;
 import pacman.types;
+
+[[nodiscard]]
+fn test_cross_word_bitboard_operations() noexcept -> bool {
+    constexpr let tile_count = std::size_t{130};
+    std::array<pacman::bitboard_word, 3> source{};
+    std::array<pacman::bitboard_word, 3> mask{};
+    std::array<pacman::bitboard_word, 3> output{};
+
+    let source_view = pacman::tile_set_view{source, tile_count};
+    let mask_view = pacman::tile_set_view{mask, tile_count};
+    let output_view = pacman::tile_set_view{output, tile_count};
+
+    source_view.set(63);
+    source_view.set(64);
+    mask_view.set(64);
+    pacman::bitboard_and_unchecked(source_view.as_const(), mask_view.as_const(),
+                                   output_view);
+    if (!output_view.test(64) || output_view.count() != 1) {
+        return false;
+    }
+
+    output_view.clear();
+    pacman::or_shift_left_unchecked(source_view.as_const(), 1, output_view);
+    if (!output_view.test(64) || !output_view.test(65) ||
+        output_view.count() != 2) {
+        return false;
+    }
+
+    output_view.clear();
+    pacman::or_shift_right_unchecked(source_view.as_const(), 1, output_view);
+    if (!output_view.test(62) || !output_view.test(63) ||
+        output_view.count() != 2) {
+        return false;
+    }
+
+    source_view.clear();
+    output_view.clear();
+    source_view.set(1);
+    pacman::or_shift_left_unchecked(source_view.as_const(), 64, output_view);
+    if (!output_view.test(65) || output_view.count() != 1) {
+        return false;
+    }
+
+    source_view.clear();
+    output_view.clear();
+    source_view.set(65);
+    pacman::or_shift_right_unchecked(source_view.as_const(), 64, output_view);
+    return output_view.test(1) && output_view.count() == 1;
+}
+
+[[nodiscard]]
+fn test_topology_masks() noexcept -> bool {
+    std::array<pacman::tile_neighbors, 3> tiles{};
+    tiles[0] = {
+        .moves = {{{.destination = 1, .heading = pacman::direction::right}}},
+        .count = 1,
+    };
+    tiles[1] = {
+        .moves = {{{.destination = 0, .heading = pacman::direction::left},
+                   {.destination = 2, .heading = pacman::direction::right}}},
+        .count = 2,
+    };
+    tiles[2] = {
+        .moves = {{{.destination = 1, .heading = pacman::direction::left},
+                   {.destination = 0,
+                    .heading = pacman::direction::right,
+                    .wraparound = true}}},
+        .count = 2,
+    };
+
+    std::array<pacman::bitboard_word, 1> north{};
+    std::array<pacman::bitboard_word, 1> east{};
+    std::array<pacman::bitboard_word, 1> south{};
+    std::array<pacman::bitboard_word, 1> west{};
+    std::array<pacman::topology_edge, 1> exceptional{};
+    let output = pacman::topology_masks{
+        .width = 0,
+        .north = north,
+        .east = east,
+        .south = south,
+        .west = west,
+        .exceptional_edges = exceptional,
+        .exceptional_edge_count = 0,
+    };
+
+    if (!pacman::build_topology_masks({.tiles = tiles}, 3, output) ||
+        output.width != 3 || east[0] != 0b011 || west[0] != 0b110 ||
+        north[0] != 0 || south[0] != 0 || output.exceptional_edge_count != 1 ||
+        exceptional[0].source != 2 || exceptional[0].destination != 0) {
+        return false;
+    }
+
+    std::array<pacman::bitboard_word, 1> frontier_words{};
+    std::array<pacman::bitboard_word, 1> scratch_words{};
+    std::array<pacman::bitboard_word, 1> graph_words{};
+    std::array<pacman::bitboard_word, 1> masked_words{};
+    let frontier = pacman::tile_set_view{frontier_words, 3};
+    let scratch = pacman::tile_set_view{scratch_words, 3};
+    let graph_result = pacman::tile_set_view{graph_words, 3};
+    let masked_result = pacman::tile_set_view{masked_words, 3};
+
+    for (std::size_t tile = 0; tile < tiles.size(); ++tile) {
+        frontier.clear();
+        frontier.set(tile);
+        pacman::detail::expand_frontier_unchecked(
+            {.tiles = tiles}, frontier.as_const(), graph_result);
+        pacman::expand_frontier_masked_unchecked(output, frontier.as_const(),
+                                                 scratch, masked_result);
+        if (graph_words != masked_words) {
+            return false;
+        }
+    }
+
+    tiles[0].moves[0].destination = 3;
+    if (pacman::build_topology_masks({.tiles = tiles}, 3, output)) {
+        return false;
+    }
+
+    tiles[0].moves[0].destination = 1;
+    tiles[0].moves[0].heading = static_cast<pacman::direction>(255);
+    if (pacman::build_topology_masks({.tiles = tiles}, 3, output)) {
+        return false;
+    }
+
+    tiles[0].moves[0].heading = pacman::direction::right;
+    output.exceptional_edges = {};
+    if (pacman::build_topology_masks({.tiles = tiles}, 3, output)) {
+        return false;
+    }
+
+    output.exceptional_edges = exceptional;
+    output.east = {};
+    return !pacman::build_topology_masks({.tiles = tiles}, 3, output);
+}
 
 [[nodiscard]]
 fn test_bfs_distances() noexcept -> bool {
@@ -63,8 +198,16 @@ fn test_bfs_distances() noexcept -> bool {
 }
 
 fn main() -> int {
-    if (!test_bfs_distances()) {
+    if (!test_cross_word_bitboard_operations()) {
         return 1;
+    }
+
+    if (!test_topology_masks()) {
+        return 2;
+    }
+
+    if (!test_bfs_distances()) {
+        return 3;
     }
 
     constexpr let width = std::size_t{200};
@@ -114,7 +257,12 @@ fn main() -> int {
     static std::array<std::uint64_t, word_count> visited_words{};
     static std::array<std::uint64_t, word_count> frontier_words{};
     static std::array<std::uint64_t, word_count> next_words{};
+    static std::array<std::uint64_t, word_count> scratch_words{};
     static std::array<pacman::path_distance, tile_count> distances{};
+    static std::array<pacman::path_distance, tile_count> masked_distances{};
+    static std::array<pacman::bitboard_word, word_count * 4> topology_words{};
+    static std::array<pacman::topology_edge, tile_count * 4>
+        exceptional_edges{};
 
     let visited = pacman::tile_set_view{
         .words = visited_words,
@@ -128,9 +276,26 @@ fn main() -> int {
         .words = next_words,
         .tile_count = tile_count,
     };
+    let scratch = pacman::tile_set_view{
+        .words = scratch_words,
+        .tile_count = tile_count,
+    };
     let graph = pacman::graph_view{
         .tiles = tiles,
     };
+    let topology = pacman::topology_masks{
+        .width = 0,
+        .north = {topology_words.data(), word_count},
+        .east = {topology_words.data() + word_count, word_count},
+        .south = {topology_words.data() + word_count * 2, word_count},
+        .west = {topology_words.data() + word_count * 3, word_count},
+        .exceptional_edges = exceptional_edges,
+        .exceptional_edge_count = 0,
+    };
+
+    if (!pacman::build_topology_masks(graph, width, topology)) {
+        return 2;
+    }
 
     if (!pacman::flood_reachable(graph, 0, visited, frontier, next)) {
         return 2;
@@ -171,11 +336,24 @@ fn main() -> int {
         return 6;
     }
 
+    let masked_started = std::chrono::steady_clock::now();
+    let masked_success =
+        pacman::bfs_distances_masked(topology, tile_count, 0, masked_distances,
+                                     visited, frontier, next, scratch);
+    let masked_elapsed = std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::steady_clock::now() - masked_started);
+
+    if (!masked_success || masked_distances != distances) {
+        return 7;
+    }
+
     std::printf("flood fill: %zux%zu maze, %zu reachable tiles\n", width,
                 height, reachable);
     std::printf("flood fill time: %lld us\n",
                 static_cast<long long>(flood_elapsed.count()));
     std::printf("BFS distance time: %lld us\n",
                 static_cast<long long>(bfs_elapsed.count()));
+    std::printf("masked BFS time: %lld us\n",
+                static_cast<long long>(masked_elapsed.count()));
     return 0;
 }
