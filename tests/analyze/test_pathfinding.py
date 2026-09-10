@@ -5,6 +5,7 @@ from pacman.analyze.models import (
     Move,
     PathfindingError,
 )
+from pacman.analyze.native_pathfinding import load_native_pathfinding
 from pacman.analyze.pathfinding import bfs, distance_to, path_from_distances, shortest_path
 from pacman.analyze.wasm_pathfinding import WasmPathfinding
 from pacman.replay.maze_codec import encode_topology
@@ -49,6 +50,18 @@ def test_optional_distance_backend_matches_python_bfs() -> None:
     graph = branching_graph()
 
     assert distances(graph, TileIndex(0)).unwrap() == bfs(graph, TileIndex(0)).unwrap().distances
+
+
+def test_native_batch_matches_individual_python_searches() -> None:
+    backend = load_native_pathfinding()
+    if isinstance(backend, Nothing):
+        return
+    graph = branching_graph()
+    origins = (TileIndex(0), TileIndex(2), TileIndex(4))
+    expected = tuple(bfs(graph, origin).unwrap().distances for origin in origins)
+
+    assert backend.value.distances_many(graph, origins) == Some(expected)
+    backend.value.close()
 
 
 def test_wasm_bridge_backend_matches_python_bfs() -> None:

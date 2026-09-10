@@ -5,6 +5,7 @@ from __future__ import annotations
 import ctypes
 import ctypes.util
 import os
+from collections.abc import Iterable
 from pathlib import Path
 
 from typed_errs import Nothing, Option, Some
@@ -78,6 +79,26 @@ class NativePathfinding:
             ctypes.c_size_t,
         ]
         library.pac_topology_bfs_distances.restype = ctypes.c_int
+        for name in (
+            "pac_topology_bfs_distances_graph",
+            "pac_topology_bfs_distances_masked",
+        ):
+            function = getattr(library, name)
+            function.argtypes = [
+                ctypes.c_void_p,
+                ctypes.c_uint16,
+                ctypes.POINTER(ctypes.c_uint32),
+                ctypes.c_size_t,
+            ]
+            function.restype = ctypes.c_int
+        library.pac_topology_bfs_many.argtypes = [
+            ctypes.c_void_p,
+            ctypes.POINTER(ctypes.c_uint16),
+            ctypes.c_size_t,
+            ctypes.POINTER(ctypes.c_uint32),
+            ctypes.c_size_t,
+        ]
+        library.pac_topology_bfs_many.restype = ctypes.c_int
         self._topologies: dict[int, tuple[MazeGraph, ctypes.c_void_p]] = {}
 
     @staticmethod
@@ -98,7 +119,7 @@ class NativePathfinding:
         return Some(encoded)
 
     @staticmethod
-    def _decode(output: ctypes.Array[ctypes.c_uint32]) -> tuple[int, ...]:
+    def _decode(output: Iterable[int]) -> tuple[int, ...]:
         """Translate the native unreachable sentinel into the Python value.
 
         Returns:
@@ -159,6 +180,61 @@ class NativePathfinding:
             else:
                 status = self._library.pac_bfs_distances_graph(encoded.value, count, int(origin), output, count)
             return Some(self._decode(output)) if status == PAC_OK else Nothing()
+        except Exception:
+            return Nothing()
+
+    def cached_distances(self, graph: MazeGraph, origin: TileIndex, *, masked: bool) -> Option[tuple[int, ...]]:
+        """Run one explicit kernel through an already cached topology.
+
+        Returns:
+            Computed distances, or Nothing when the native call fails.
+        """
+        try:
+            topology = self._topology_for(graph)
+            if isinstance(topology, Nothing):
+                return Nothing()
+            count = len(graph.moves)
+            output = (ctypes.c_uint32 * count)()
+            function = (
+                self._library.pac_topology_bfs_distances_masked
+                if masked
+                else self._library.pac_topology_bfs_distances_graph
+            )
+            status = function(topology.value, int(origin), output, count)
+            return Some(self._decode(output)) if status == PAC_OK else Nothing()
+        except Exception:
+            return Nothing()
+
+    def distances_many(self, graph: MazeGraph, origins: tuple[TileIndex, ...]) -> Option[tuple[tuple[int, ...], ...]]:
+        """Compute several distance fields through one native call.
+
+        Returns:
+            One field per origin, or Nothing when the batch fails.
+        """
+        if not origins:
+            return Some(())
+        try:
+            topology = self._topology_for(graph)
+            if isinstance(topology, Nothing):
+                return Nothing()
+            tile_count = len(graph.moves)
+            encoded_origins = (ctypes.c_uint16 * len(origins))(*(int(origin) for origin in origins))
+            output_count = tile_count * len(origins)
+            output = (ctypes.c_uint32 * output_count)()
+            status = self._library.pac_topology_bfs_many(
+                topology.value,
+                encoded_origins,
+                len(origins),
+                output,
+                output_count,
+            )
+            if status != PAC_OK:
+                return Nothing()
+            return Some(
+                tuple(
+                    self._decode(output[index * tile_count : (index + 1) * tile_count]) for index in range(len(origins))
+                )
+            )
         except Exception:
             return Nothing()
 

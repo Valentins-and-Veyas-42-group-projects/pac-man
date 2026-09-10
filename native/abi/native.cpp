@@ -2,6 +2,7 @@
 #include "pacman/macros.h"
 
 #include <cstddef>
+#include <cstdint>
 #include <limits>
 #include <memory>
 #include <new>
@@ -13,6 +14,11 @@ import pacman.graph;
 import pacman.topology;
 import pacman.types;
 
+enum class pac_bfs_kernel : std::uint8_t {
+    graph,
+    masked,
+};
+
 struct pac_topology {
     size_t tile_count{};
     std::unique_ptr<pacman::tile_neighbors[]> tiles{};
@@ -20,6 +26,7 @@ struct pac_topology {
     std::unique_ptr<pacman::topology_edge[]> exceptional_edges{};
     std::unique_ptr<pacman::bitboard_word[]> workspace{};
     pacman::topology_masks topology{};
+    pac_bfs_kernel bfs_kernel{pac_bfs_kernel::masked};
 };
 
 namespace {
@@ -60,6 +67,53 @@ fn workspace_view(pac_topology &topology, const size_t index) noexcept
         .words = {topology.workspace.get() + words * index, words},
         .tile_count = topology.tile_count,
     };
+}
+
+fn topology_bfs_graph(pac_topology &topology, const uint16_t origin,
+                      std::span<uint32_t> distances) noexcept -> pac_status {
+    if (!pacman::bfs_distances(
+            {.tiles = {topology.tiles.get(), topology.tile_count}}, origin,
+            distances, workspace_view(topology, 0), workspace_view(topology, 1),
+            workspace_view(topology, 2))) {
+        return PAC_INTERNAL_ERROR;
+    }
+    return PAC_OK;
+}
+
+fn topology_bfs_masked(pac_topology &topology, const uint16_t origin,
+                       std::span<uint32_t> distances) noexcept -> pac_status {
+    if (!pacman::bfs_distances_masked(
+            topology.topology, topology.tile_count, origin, distances,
+            workspace_view(topology, 0), workspace_view(topology, 1),
+            workspace_view(topology, 2), workspace_view(topology, 3))) {
+        return PAC_INTERNAL_ERROR;
+    }
+    return PAC_OK;
+}
+
+fn topology_bfs(pac_topology &topology, const uint16_t origin,
+                std::span<uint32_t> distances) noexcept -> pac_status {
+    switch (topology.bfs_kernel) {
+    case pac_bfs_kernel::graph:
+        return topology_bfs_graph(topology, origin, distances);
+    case pac_bfs_kernel::masked:
+        return topology_bfs_masked(topology, origin, distances);
+    }
+    return PAC_INTERNAL_ERROR;
+}
+
+fn validate_topology_search(const pac_topology *topology, const uint16_t origin,
+                            const uint32_t *distances,
+                            const size_t distance_capacity) noexcept
+    -> pac_status {
+    if (topology == nullptr || distances == nullptr ||
+        static_cast<size_t>(origin) >= topology->tile_count) {
+        return PAC_INVALID_ARGUMENT;
+    }
+    if (distance_capacity < topology->tile_count) {
+        return PAC_BUFFER_TOO_SMALL;
+    }
+    return PAC_OK;
 }
 
 } // namespace
@@ -142,19 +196,66 @@ cfn PAC_API pac_topology_bfs_distances(pac_topology *topology,
                                        uint32_t *distances,
                                        const size_t distance_capacity)
     -> pac_status {
-    if (topology == nullptr || distances == nullptr ||
-        static_cast<size_t>(origin) >= topology->tile_count) {
+    const let status = validate_topology_search(topology, origin, distances,
+                                                distance_capacity);
+    return status == PAC_OK ? topology_bfs(*topology, origin,
+                                           {distances, topology->tile_count})
+                            : status;
+}
+
+cfn PAC_API pac_topology_bfs_distances_graph(pac_topology *topology,
+                                             const uint16_t origin,
+                                             uint32_t *distances,
+                                             const size_t distance_capacity)
+    -> pac_status {
+    const let status = validate_topology_search(topology, origin, distances,
+                                                distance_capacity);
+    return status == PAC_OK
+               ? topology_bfs_graph(*topology, origin,
+                                    {distances, topology->tile_count})
+               : status;
+}
+
+cfn PAC_API pac_topology_bfs_distances_masked(pac_topology *topology,
+                                              const uint16_t origin,
+                                              uint32_t *distances,
+                                              const size_t distance_capacity)
+    -> pac_status {
+    const let status = validate_topology_search(topology, origin, distances,
+                                                distance_capacity);
+    return status == PAC_OK
+               ? topology_bfs_masked(*topology, origin,
+                                     {distances, topology->tile_count})
+               : status;
+}
+
+cfn PAC_API pac_topology_bfs_many(
+    pac_topology *topology, const uint16_t *origins, const size_t origin_count,
+    uint32_t *distance_fields, const size_t distance_capacity) -> pac_status {
+    if (topology == nullptr) {
         return PAC_INVALID_ARGUMENT;
     }
-    if (distance_capacity < topology->tile_count) {
-        return PAC_BUFFER_TOO_SMALL;
+    if (origin_count == 0) {
+        return PAC_OK;
     }
-    if (!pacman::bfs_distances_masked(
-            topology->topology, topology->tile_count, origin,
-            {distances, topology->tile_count}, workspace_view(*topology, 0),
-            workspace_view(*topology, 1), workspace_view(*topology, 2),
-            workspace_view(*topology, 3))) {
-        return PAC_INTERNAL_ERROR;
+    if (origins == nullptr || distance_fields == nullptr ||
+        origin_count > distance_capacity / topology->tile_count) {
+        return origins == nullptr || distance_fields == nullptr
+                   ? PAC_INVALID_ARGUMENT
+                   : PAC_BUFFER_TOO_SMALL;
+    }
+
+    for (size_t index = 0; index < origin_count; ++index) {
+        if (static_cast<size_t>(origins[index]) >= topology->tile_count) {
+            return PAC_INVALID_ARGUMENT;
+        }
+        const let status =
+            topology_bfs(*topology, origins[index],
+                         {distance_fields + index * topology->tile_count,
+                          topology->tile_count});
+        if (status != PAC_OK) {
+            return status;
+        }
     }
     return PAC_OK;
 }

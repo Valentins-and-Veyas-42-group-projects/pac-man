@@ -72,6 +72,25 @@ PAC_API pac_status pac_topology_bfs_distances(pac_topology *topology,
                                               uint32_t *distances,
                                               size_t distance_capacity);
 
+/* Compute distances through the cached graph-walking kernel. */
+PAC_API pac_status pac_topology_bfs_distances_graph(pac_topology *topology,
+                                                    uint16_t origin,
+                                                    uint32_t *distances,
+                                                    size_t distance_capacity);
+
+/* Compute distances through the cached masked kernel. */
+PAC_API pac_status pac_topology_bfs_distances_masked(pac_topology *topology,
+                                                     uint16_t origin,
+                                                     uint32_t *distances,
+                                                     size_t distance_capacity);
+
+/* Compute consecutive distance fields using the selected cached kernel. */
+PAC_API pac_status pac_topology_bfs_many(pac_topology *topology,
+                                         const uint16_t *origins,
+                                         size_t origin_count,
+                                         uint32_t *distance_fields,
+                                         size_t distance_capacity);
+
 /* One-shot graph-walking BFS retained for measured comparisons. */
 PAC_API pac_status pac_bfs_distances_graph(const pac_tile_neighbors *tiles,
                                            size_t tile_count, uint16_t origin,

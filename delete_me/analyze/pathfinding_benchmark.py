@@ -30,7 +30,25 @@ def measure(graph: MazeGraph, search: Search, rounds: int) -> float:
     return median(samples)
 
 
-def native_search(backend: NativePathfinding, masked: bool | None) -> Search:
+def measure_batch(graph: MazeGraph, backend: NativePathfinding, rounds: int) -> float:
+    """Return median nanoseconds per field using five-origin batches.
+
+    Raises:
+        RuntimeError: Native batch execution failed.
+    """
+    origins = tuple(TileIndex(index) for index in range(len(graph.moves)))
+    batches = tuple(origins[index : index + 5] for index in range(0, len(origins), 5))
+    samples: list[float] = []
+    for _ in range(rounds):
+        started = perf_counter_ns()
+        for batch in batches:
+            if isinstance(backend.distances_many(graph, batch), Nothing):
+                raise RuntimeError("native batch BFS failed")
+        samples.append((perf_counter_ns() - started) / len(origins))
+    return median(samples)
+
+
+def native_search(backend: NativePathfinding, mode: str) -> Search:
     """Create a callable for cached, graph, or one-shot masked native BFS.
 
     Returns:
@@ -38,11 +56,14 @@ def native_search(backend: NativePathfinding, masked: bool | None) -> Search:
     """
 
     def search(graph: MazeGraph, origin: TileIndex) -> tuple[int, ...]:
-        result = (
-            backend.distances(graph, origin)
-            if masked is None
-            else backend.one_shot_distances(graph, origin, masked=masked)
-        )
+        if mode == "selected":
+            result = backend.distances(graph, origin)
+        elif mode == "graph-cached":
+            result = backend.cached_distances(graph, origin, masked=False)
+        elif mode == "masked-cached":
+            result = backend.cached_distances(graph, origin, masked=True)
+        else:
+            result = backend.one_shot_distances(graph, origin, masked=mode == "masked-one-shot")
         if isinstance(result, Nothing):
             raise RuntimeError("native BFS failed")
         return result.value
@@ -93,9 +114,11 @@ def main() -> int:
 
     implementations = (
         ("Python BFS", python),
-        ("C++ graph one-shot", native_search(backend, False)),
-        ("C++ masked one-shot", native_search(backend, True)),
-        ("C++ masked cached", native_search(backend, None)),
+        ("C++ graph one-shot", native_search(backend, "graph-one-shot")),
+        ("C++ masked one-shot", native_search(backend, "masked-one-shot")),
+        ("C++ graph cached", native_search(backend, "graph-cached")),
+        ("C++ masked cached", native_search(backend, "masked-cached")),
+        ("C++ selected cached", native_search(backend, "selected")),
     )
 
     for origin_value in range(len(graph.moves)):
@@ -111,6 +134,8 @@ def main() -> int:
         search(graph, TileIndex(0))
         elapsed = measure(graph, search, args.rounds) / 1_000
         print(f"{name:22} {elapsed:9.2f} us/search")
+    batch_elapsed = measure_batch(graph, backend, args.rounds) / 1_000
+    print(f"{'C++ selected batch':22} {batch_elapsed:9.2f} us/field")
     backend.close()
     return 0
 
