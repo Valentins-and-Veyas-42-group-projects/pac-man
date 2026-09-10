@@ -1,3 +1,4 @@
+from pacman.analyze.distance_backend import distances
 from pacman.analyze.maze_graph import build_maze_graph
 from pacman.analyze.models import (
     MazeGraph,
@@ -5,6 +6,7 @@ from pacman.analyze.models import (
     PathfindingError,
 )
 from pacman.analyze.pathfinding import bfs, distance_to, shortest_path
+from pacman.analyze.wasm_pathfinding import WasmPathfinding
 from pacman.replay.maze_codec import encode_topology
 from pacman.replay.models import (
     Direction,
@@ -41,6 +43,25 @@ def test_bfs_calculates_shortest_distances_and_leaves_disconnected_tiles() -> No
     assert distance_to(field, TileIndex(0)) == Some(0)
     assert distance_to(field, TileIndex(4)) == Some(2)
     assert isinstance(distance_to(field, TileIndex(3)), Nothing)
+
+
+def test_optional_distance_backend_matches_python_bfs() -> None:
+    graph = branching_graph()
+
+    assert distances(graph, TileIndex(0)).unwrap() == bfs(graph, TileIndex(0)).unwrap().distances
+
+
+def test_wasm_bridge_backend_matches_python_bfs() -> None:
+    class TestBridge:
+        def bfsDistances(self, encoded: list[int], tile_count: int, origin: int) -> list[int]:
+            assert tile_count == 6
+            assert origin == 0
+            assert len(encoded) == tile_count * 18
+            return [0, 1, 2, -1, 2, -1]
+
+    backend = WasmPathfinding(TestBridge())
+
+    assert backend.distances(branching_graph(), TileIndex(0)) == Some((0, 1, 2, -1, 2, -1))
 
 
 def test_bfs_rejects_origins_outside_the_graph() -> None:

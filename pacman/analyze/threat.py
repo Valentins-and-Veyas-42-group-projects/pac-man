@@ -5,8 +5,8 @@ from enum import Enum
 
 from typed_errs import Err, Nothing, Ok, Option, Result, Some
 
+from pacman.analyze.distance_backend import distances
 from pacman.analyze.models import MazeGraph
-from pacman.analyze.pathfinding import bfs
 from pacman.analyze.state import GhostDistance
 from pacman.replay.models import Ghost, TileIndex
 
@@ -91,12 +91,12 @@ def build_threat_field(
         if not graph.contains(ghost.tile):
             return threat_err(ThreatError.INVALID_GHOST_TILE)
 
-        distance_field = bfs(graph, ghost.tile)
+        distance_field = distances(graph, ghost.tile)
 
         if isinstance(distance_field, Err):
             return threat_err(ThreatError.INVALID_GHOST_TILE)
 
-        for raw_tile, ghost_eta in enumerate(distance_field.value.distances):
+        for raw_tile, ghost_eta in enumerate(distance_field.value):
             if ghost_eta < 0:
                 continue
 

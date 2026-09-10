@@ -1,0 +1,8 @@
+#!/bin/sh
+
+if [ "$#" -eq 1 ] && [ "$1" = "--version" ]; then
+    llvm_root=$(em-config LLVM_ROOT) || exit 1
+    exec "$llvm_root/clang++" --version
+fi
+
+exec em++ "$@"

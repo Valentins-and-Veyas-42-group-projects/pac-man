@@ -4,6 +4,7 @@ module;
 
 #include <bit>
 #include <cstddef>
+#include <span>
 
 export module pacman.flood_fill;
 

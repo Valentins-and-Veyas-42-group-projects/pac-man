@@ -1,0 +1,3 @@
+include xmake.lua
+recursive-include native *.cpp *.cppm *.h
+recursive-include tools/emscripten *
