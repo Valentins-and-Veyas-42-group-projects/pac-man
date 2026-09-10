@@ -5,9 +5,9 @@
 #include <stdint.h>
 
 #if defined(__GNUC__) || defined(__clang__)
-#    define PAC_API __attribute__((visibility("default")))
+#define PAC_API __attribute__((visibility("default")))
 #else
-#    define PAC_API
+#define PAC_API
 #endif
 
 #ifdef __cplusplus
@@ -23,16 +23,12 @@ typedef enum pac_status {
     PAC_INTERNAL_ERROR = 3
 } pac_status;
 
-PAC_API uint32_t
-pac_abi_version(void);
+/* Return the supported stable C ABI version. */
+PAC_API uint32_t pac_abi_version(void);
 
-PAC_API pac_status
-pac_bitboard_or(
-    const uint64_t *lhs,
-    const uint64_t *rhs,
-    size_t word_count,
-    uint64_t *output
-);
+/* Compute a multiword bitwise OR into caller-owned output storage. */
+PAC_API pac_status pac_bitboard_or(const uint64_t *lhs, const uint64_t *rhs,
+                                   size_t word_count, uint64_t *output);
 
 #ifdef __cplusplus
 }
