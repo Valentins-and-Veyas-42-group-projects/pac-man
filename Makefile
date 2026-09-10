@@ -17,7 +17,7 @@ MYPY = uv run mypy
 PYTEST = uv run pytest
 TY = uv run ty
 
-.PHONY: all install run debug clean lint lint-strict test typecheck native
+.PHONY: all install run debug clean lint lint-strict test typecheck native native-test wasm wasm-test package
 
 all: install $(CPP_TARGET)
 
@@ -52,3 +52,22 @@ typecheck:
 native:
 	xmake f -c -m debug --toolchain=clang
 	xmake
+
+native-test:
+	xmake f -c -m release --toolchain=clang
+	xmake build pacman-native-tests
+	xmake run pacman-native-tests
+
+wasm-test:
+	xmake f -c -p wasm -a wasm32 -m release
+	xmake build pacman-wasm-tests
+	xmake run pacman-wasm-tests
+	xmake build pacman-wasm
+	node web/test-native-engine.mjs
+
+wasm:
+	xmake f -c -p wasm -a wasm32 -m release
+	xmake build pacman-wasm
+
+package:
+	$(UV) build --wheel

@@ -62,33 +62,6 @@ fn test_bfs_distances() noexcept -> bool {
     return distances == expected;
 }
 
-[[nodiscard]]
-fn flood_reachable_checked(const pacman::graph_view graph,
-                           const pacman::tile_index origin,
-                           pacman::tile_set_view visited,
-                           pacman::tile_set_view frontier,
-                           pacman::tile_set_view next) noexcept -> bool {
-    if (!graph.is_valid() || !graph.contains(origin)) {
-        return false;
-    }
-
-    if (!visited.clear() || !frontier.clear() || !next.clear() ||
-        !visited.set(origin) || !frontier.set(origin)) {
-        return false;
-    }
-
-    while (frontier.any()) {
-        if (!pacman::expand_frontier(graph, frontier.as_const(), next) ||
-            !next.and_not_with(visited.as_const()) ||
-            !visited.or_with(next.as_const()) ||
-            !frontier.copy_from(next.as_const())) {
-            return false;
-        }
-    }
-
-    return true;
-}
-
 fn main() -> int {
     if (!test_bfs_distances()) {
         return 1;
@@ -99,7 +72,7 @@ fn main() -> int {
     constexpr let tile_count = width * height;
     constexpr let word_count = pacman::words_for_tiles(tile_count);
 
-    std::array<pacman::tile_neighbors, tile_count> tiles{};
+    static std::array<pacman::tile_neighbors, tile_count> tiles{};
 
     let index_of = [](const std::size_t x,
                       const std::size_t y) -> pacman::tile_index {
@@ -138,9 +111,10 @@ fn main() -> int {
         }
     }
 
-    std::array<std::uint64_t, word_count> visited_words{};
-    std::array<std::uint64_t, word_count> frontier_words{};
-    std::array<std::uint64_t, word_count> next_words{};
+    static std::array<std::uint64_t, word_count> visited_words{};
+    static std::array<std::uint64_t, word_count> frontier_words{};
+    static std::array<std::uint64_t, word_count> next_words{};
+    static std::array<pacman::path_distance, tile_count> distances{};
 
     let visited = pacman::tile_set_view{
         .words = visited_words,
@@ -158,26 +132,17 @@ fn main() -> int {
         .tiles = tiles,
     };
 
-    if (!flood_reachable_checked(graph, 0, visited, frontier, next) ||
-        !pacman::flood_reachable(graph, 0, visited, frontier, next)) {
+    if (!pacman::flood_reachable(graph, 0, visited, frontier, next)) {
         return 2;
     }
 
-    let checked_started = std::chrono::steady_clock::now();
-    let checked_success =
-        flood_reachable_checked(graph, 0, visited, frontier, next);
-    let checked_elapsed = std::chrono::duration_cast<std::chrono::microseconds>(
-        std::chrono::steady_clock::now() - checked_started);
-    let checked_words = visited_words;
-
-    let unchecked_started = std::chrono::steady_clock::now();
-    let unchecked_success =
+    let flood_started = std::chrono::steady_clock::now();
+    let flood_success =
         pacman::flood_reachable(graph, 0, visited, frontier, next);
-    let unchecked_elapsed =
-        std::chrono::duration_cast<std::chrono::microseconds>(
-            std::chrono::steady_clock::now() - unchecked_started);
+    let flood_elapsed = std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::steady_clock::now() - flood_started);
 
-    if (!checked_success || !unchecked_success) {
+    if (!flood_success) {
         return 2;
     }
 
@@ -190,20 +155,27 @@ fn main() -> int {
         return 4;
     }
 
-    if (checked_words != visited_words) {
+    if (!pacman::bfs_distances(graph, 0, distances, visited, frontier, next)) {
         return 5;
     }
 
-    let checked_us = static_cast<long long>(checked_elapsed.count());
-    let unchecked_us = static_cast<long long>(unchecked_elapsed.count());
-    let speedup = unchecked_us == 0 ? 0.0
-                                    : static_cast<double>(checked_us) /
-                                          static_cast<double>(unchecked_us);
+    let bfs_started = std::chrono::steady_clock::now();
+    let bfs_success =
+        pacman::bfs_distances(graph, 0, distances, visited, frontier, next);
+    let bfs_elapsed = std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::steady_clock::now() - bfs_started);
+
+    if (!bfs_success || distances[0] != 0 ||
+        distances[index_of(width / 2, height / 2)] != width ||
+        distances[index_of(width - 1, height - 1)] != 2) {
+        return 6;
+    }
 
     std::printf("flood fill: %zux%zu maze, %zu reachable tiles\n", width,
                 height, reachable);
-    std::printf("checked expansion:   %lld us\n", checked_us);
-    std::printf("unchecked expansion: %lld us\n", unchecked_us);
-    std::printf("speedup: %.2fx\n", speedup);
+    std::printf("flood fill time: %lld us\n",
+                static_cast<long long>(flood_elapsed.count()));
+    std::printf("BFS distance time: %lld us\n",
+                static_cast<long long>(bfs_elapsed.count()));
     return 0;
 }

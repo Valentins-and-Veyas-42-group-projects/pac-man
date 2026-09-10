@@ -5,8 +5,8 @@ from enum import Enum
 
 from typed_errs import Err, Nothing, Ok, Result
 
+from pacman.analyze.distance_backend import distances
 from pacman.analyze.models import MazeGraph
-from pacman.analyze.pathfinding import bfs, distance_to
 from pacman.analyze.topology import TileKind, classify_tile
 from pacman.replay.models import (
     Direction,
@@ -108,7 +108,7 @@ def analyze_frame(
     if isinstance(tile_kind, Nothing):
         return state_err(AnalysisStateError.UNCLASSIFIED_PLAYER_TILE)
 
-    distance_field = bfs(graph, player_tile)
+    distance_field = distances(graph, player_tile)
 
     if isinstance(distance_field, Err):
         return state_err(AnalysisStateError.INVALID_PLAYER_TILE)
@@ -124,12 +124,8 @@ def analyze_frame(
         if not graph.contains(ghost_tile):
             return state_err(AnalysisStateError.INVALID_GHOST_TILE)
 
-        distance = distance_to(
-            distance_field.value,
-            ghost_tile,
-        )
-
-        if isinstance(distance, Nothing):
+        distance = distance_field.value[int(ghost_tile)]
+        if distance < 0:
             return state_err(AnalysisStateError.UNREACHABLE_GHOST)
 
         dangerous = ghost.state not in (
@@ -141,7 +137,7 @@ def analyze_frame(
             GhostDistance(
                 ghost=ghost.ghost,
                 tile=ghost_tile,
-                distance=distance.value,
+                distance=distance,
                 dangerous=dangerous,
             )
         )
