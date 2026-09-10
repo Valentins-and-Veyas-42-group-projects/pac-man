@@ -5,11 +5,62 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <span>
 
 import pacman.bitboard;
+import pacman.bfs;
 import pacman.flood_fill;
 import pacman.graph;
 import pacman.types;
+
+[[nodiscard]]
+fn test_bfs_distances() noexcept -> bool {
+    constexpr let tile_count = std::size_t{5};
+    std::array<pacman::tile_neighbors, tile_count> tiles{};
+
+    tiles[0] = {
+        .moves = {{{.destination = 1}, {.destination = 3, .wraparound = true}}},
+        .count = 2,
+    };
+    tiles[1] = {
+        .moves = {{{.destination = 0}, {.destination = 2}}},
+        .count = 2,
+    };
+    tiles[2] = {
+        .moves = {{{.destination = 1}}},
+        .count = 1,
+    };
+    tiles[3] = {
+        .moves = {{{.destination = 0, .wraparound = true}}},
+        .count = 1,
+    };
+
+    std::array<pacman::path_distance, tile_count> distances{};
+    std::array<pacman::bitboard_word, 1> visited_words{};
+    std::array<pacman::bitboard_word, 1> frontier_words{};
+    std::array<pacman::bitboard_word, 1> next_words{};
+
+    let make_view = [](std::span<pacman::bitboard_word> words) {
+        return pacman::tile_set_view{
+            .words = words,
+            .tile_count = tile_count,
+        };
+    };
+
+    if (!pacman::bfs_distances(
+            {.tiles = tiles}, 0, distances, make_view(visited_words),
+            make_view(frontier_words), make_view(next_words))) {
+        return false;
+    }
+
+    constexpr std::array expected{
+        pacman::path_distance{0},     pacman::path_distance{1},
+        pacman::path_distance{2},     pacman::path_distance{1},
+        pacman::unreachable_distance,
+    };
+
+    return distances == expected;
+}
 
 [[nodiscard]]
 fn flood_reachable_checked(const pacman::graph_view graph,
@@ -39,6 +90,10 @@ fn flood_reachable_checked(const pacman::graph_view graph,
 }
 
 fn main() -> int {
+    if (!test_bfs_distances()) {
+        return 1;
+    }
+
     constexpr let width = std::size_t{200};
     constexpr let height = std::size_t{200};
     constexpr let tile_count = width * height;
@@ -105,7 +160,7 @@ fn main() -> int {
 
     if (!flood_reachable_checked(graph, 0, visited, frontier, next) ||
         !pacman::flood_reachable(graph, 0, visited, frontier, next)) {
-        return 1;
+        return 2;
     }
 
     let checked_started = std::chrono::steady_clock::now();
@@ -123,20 +178,20 @@ fn main() -> int {
             std::chrono::steady_clock::now() - unchecked_started);
 
     if (!checked_success || !unchecked_success) {
-        return 1;
+        return 2;
     }
 
     let reachable = visited.count();
     if (reachable != tile_count) {
-        return 2;
-    }
-
-    if (!visited.test(0) || !visited.test(tile_count - 1)) {
         return 3;
     }
 
-    if (checked_words != visited_words) {
+    if (!visited.test(0) || !visited.test(tile_count - 1)) {
         return 4;
+    }
+
+    if (checked_words != visited_words) {
+        return 5;
     }
 
     let checked_us = static_cast<long long>(checked_elapsed.count());

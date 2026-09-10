@@ -7,18 +7,29 @@ module;
 
 export module pacman.flood_fill;
 
+// Flood fill starts at one tile and keeps growing until it cannot go farther.
+// The frontier is the newest outer edge of that growing region. Walls are
+// missing graph edges, so the frontier naturally stops when it reaches them.
+//
+//       before              after one step
+//
+//     +---+---+---+         +---+---+---+
+//     |   | F |   |         | F | V | F |
+//     +---+---+---+   -->   +---+---+---+
+//         frontier              V = visited
+//                               F = new frontier
+
 import pacman.bitboard;
 import pacman.graph;
 import pacman.types;
 
-namespace pacman {
+export namespace pacman::detail {
 
-[[nodiscard]]
 force_inline fn expand_frontier_unchecked(const graph_view graph,
                                           const const_tile_set_view frontier,
-                                          tile_set_view next) noexcept -> bool {
-    if (!next.clear()) {
-        return false;
+                                          tile_set_view next) noexcept -> void {
+    for (let &word : next.words) {
+        word = 0;
     }
 
     for (std::size_t word_index = 0; word_index < frontier.words.size();
@@ -33,23 +44,24 @@ force_inline fn expand_frontier_unchecked(const graph_view graph,
                 break;
             }
 
-            let tile = static_cast<tile_index>(index);
+            const let &neighbors = graph.tiles[index];
 
-            for (const let &neighbor : graph.neighbors(tile)) {
-                if (!next.set(neighbor.destination)) {
-                    return false;
-                }
+            for (std::size_t neighbor_index = 0;
+                 neighbor_index < neighbors.count; ++neighbor_index) {
+                const let &neighbor = neighbors.moves[neighbor_index];
+                let destination =
+                    static_cast<std::size_t>(neighbor.destination);
+                next.words[destination / bits_per_word] |=
+                    bitboard_word{1} << (destination % bits_per_word);
             }
 
             // Clear the lowest set bit to visit frontier tiles only.
             pending &= pending - 1;
         }
     }
-
-    return true;
 }
 
-} // namespace pacman
+} // namespace pacman::detail
 
 export namespace pacman {
 
@@ -70,7 +82,8 @@ fn expand_frontier(const graph_view graph, const const_tile_set_view frontier,
         return false;
     }
 
-    return expand_frontier_unchecked(graph, frontier, next);
+    detail::expand_frontier_unchecked(graph, frontier, next);
+    return true;
 }
 
 /// Computes every tile reachable from an origin using reusable buffers.
@@ -109,9 +122,7 @@ fn flood_reachable(const graph_view graph, const tile_index origin,
 
     while (frontier.any()) {
         // All graph and buffer validation happens before this hot loop.
-        if (!expand_frontier_unchecked(graph, frontier.as_const(), next)) {
-            return false;
-        }
+        detail::expand_frontier_unchecked(graph, frontier.as_const(), next);
 
         if (!next.and_not_with(visited.as_const())) {
             return false;
