@@ -4,6 +4,11 @@ VENV ?= .venv
 VENV_PYTHON = $(VENV)/bin/python
 MAIN ?= pac-man.py
 ARGS ?= config.json
+WITH_CPP ?= 0
+
+ifeq ($(WITH_CPP),1)
+CPP_TARGET = native
+endif
 
 MYPY_FLAGS = --warn-return-any --warn-unused-ignores --ignore-missing-imports --disallow-untyped-defs --check-untyped-defs
 
@@ -12,7 +17,9 @@ MYPY = uv run mypy
 PYTEST = uv run pytest
 TY = uv run ty
 
-.PHONY: install run debug clean lint lint-strict test typecheck
+.PHONY: all install run debug clean lint lint-strict test typecheck native
+
+all: install $(CPP_TARGET)
 
 install:
 	uv sync --dev
@@ -41,3 +48,7 @@ test:
 
 typecheck:
 	$(TY) check pacman delete_me tests
+
+native:
+	xmake f -c -m debug --toolchain=clang
+	xmake

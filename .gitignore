@@ -9,9 +9,29 @@ venv/
 *.egg-info/
 dist/
 build/
+.build/
+.xmake/
 .hypothesis/
 .local/
 *.db
 *.sqlite3
 *.pdf
 /docs/browser-port-plan.md
+
+# Native build artifacts
+*.o
+*.obj
+*.a
+*.so
+*.so.*
+*.dylib
+
+# LLVM / profiling
+*.profraw
+*.profdata
+
+# WebAssembly generated artifacts
+*.wasm
+*.wat
+*.wasm.map
+*.worker.js
