@@ -53,6 +53,23 @@ def test_optional_distance_backend_matches_python_bfs() -> None:
 
 def test_wasm_bridge_backend_matches_python_bfs() -> None:
     class TestBridge:
+        created = 0
+
+        def createTopology(self, encoded: list[int], tile_count: int, width: int) -> int:
+            assert len(encoded) == tile_count * 18
+            assert width == 3
+            self.created += 1
+            return 42
+
+        def destroyTopology(self, topology: int) -> None:
+            assert topology == 42
+
+        def topologyBfsDistances(self, topology: int, tile_count: int, origin: int) -> list[int]:
+            assert topology == 42
+            assert tile_count == 6
+            assert origin == 0
+            return [0, 1, 2, -1, 2, -1]
+
         def bfsDistances(self, encoded: list[int], tile_count: int, width: int, origin: int) -> list[int]:
             assert tile_count == 6
             assert width == 3
@@ -60,9 +77,13 @@ def test_wasm_bridge_backend_matches_python_bfs() -> None:
             assert len(encoded) == tile_count * 18
             return [0, 1, 2, -1, 2, -1]
 
-    backend = WasmPathfinding(TestBridge())
+    bridge = TestBridge()
+    backend = WasmPathfinding(bridge)
+    graph = branching_graph()
 
-    assert backend.distances(branching_graph(), TileIndex(0)) == Some((0, 1, 2, -1, 2, -1))
+    assert backend.distances(graph, TileIndex(0)) == Some((0, 1, 2, -1, 2, -1))
+    assert backend.distances(graph, TileIndex(0)) == Some((0, 1, 2, -1, 2, -1))
+    assert bridge.created == 1
 
 
 def test_bfs_rejects_origins_outside_the_graph() -> None:

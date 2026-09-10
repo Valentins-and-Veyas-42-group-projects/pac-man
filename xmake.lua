@@ -35,7 +35,7 @@ if is_plat("wasm") then
             "-sEXPORT_ES6=1",
             "-sEXPORT_NAME=createPacmanNative",
             "-sALLOW_MEMORY_GROWTH=1",
-            "-sEXPORTED_FUNCTIONS=['_malloc','_free','_pac_abi_version','_pac_bitboard_or','_pac_bfs_distances']",
+            "-sEXPORTED_FUNCTIONS=['_malloc','_free','_pac_abi_version','_pac_bitboard_or','_pac_bfs_distances','_pac_topology_create','_pac_topology_destroy','_pac_topology_bfs_distances']",
             "-sEXPORTED_RUNTIME_METHODS=['HEAPU8','HEAPU32']",
             {force = true}
         )
@@ -84,7 +84,11 @@ else
         add_rules("utils.symbols.export_list", {symbols = {
             "pac_abi_version",
             "pac_bitboard_or",
-            "pac_bfs_distances"
+            "pac_bfs_distances",
+            "pac_bfs_distances_graph",
+            "pac_topology_create",
+            "pac_topology_destroy",
+            "pac_topology_bfs_distances"
         }})
 
     target("pacman-native-tests")

@@ -42,6 +42,8 @@ typedef struct pac_tile_neighbors {
     uint8_t reserved;
 } pac_tile_neighbors;
 
+typedef struct pac_topology pac_topology;
+
 /* Return the supported stable C ABI version. */
 PAC_API uint32_t pac_abi_version(void);
 
@@ -52,9 +54,29 @@ PAC_API pac_status pac_bitboard_or(const uint64_t *lhs, const uint64_t *rhs,
 /* Compute shortest distances, writing UINT32_MAX for unreachable tiles. */
 PAC_API pac_status pac_bfs_distances(const pac_tile_neighbors *tiles,
                                      size_t tile_count, size_t maze_width,
-                                     uint16_t origin,
-                                     uint32_t *distances,
+                                     uint16_t origin, uint32_t *distances,
                                      size_t distance_capacity);
+
+/* Create reusable immutable topology and BFS workspace. */
+PAC_API pac_status pac_topology_create(const pac_tile_neighbors *tiles,
+                                       size_t tile_count, size_t maze_width,
+                                       pac_topology **output);
+
+/* Release a topology created by pac_topology_create. Accepts NULL. */
+PAC_API void pac_topology_destroy(pac_topology *topology);
+
+/* Compute distances using a reusable topology. Not safe for concurrent calls.
+ */
+PAC_API pac_status pac_topology_bfs_distances(pac_topology *topology,
+                                              uint16_t origin,
+                                              uint32_t *distances,
+                                              size_t distance_capacity);
+
+/* One-shot graph-walking BFS retained for measured comparisons. */
+PAC_API pac_status pac_bfs_distances_graph(const pac_tile_neighbors *tiles,
+                                           size_t tile_count, uint16_t origin,
+                                           uint32_t *distances,
+                                           size_t distance_capacity);
 
 #ifdef __cplusplus
 }
