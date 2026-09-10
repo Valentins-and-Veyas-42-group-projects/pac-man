@@ -3,7 +3,8 @@ CompileFlags:
 
 Diagnostics:
   UnusedIncludes: Strict
-  MissingIncludes: Strict
+  # clangd's include-cleaner does not understand names supplied by imports yet.
+  MissingIncludes: None
 
 InlayHints:
   Enabled: true
