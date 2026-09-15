@@ -147,6 +147,8 @@ def path_from_distances(
         return Nothing()
     if not graph.contains(origin) or not graph.contains(destination):
         return Nothing()
+    if distances[int(origin)] != 0:
+        return Nothing()
 
     destination_distance = distances[int(destination)]
     if destination_distance < 0:
@@ -176,6 +178,9 @@ def path_from_distances(
         reversed_tiles.append(previous)
         current = previous
         current_distance -= 1
+
+    if current_distance != 0 or len(reversed_tiles) - 1 != destination_distance:
+        return Nothing()
 
     reversed_tiles.reverse()
     return Some(Path(tuple(reversed_tiles)))

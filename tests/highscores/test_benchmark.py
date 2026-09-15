@@ -10,4 +10,4 @@ def test_ingestion_benchmark_is_repeatable_and_verifies_attribution(tmp_path: Pa
     for result in (first, second):
         assert result.games_per_second > 0
         assert result.persisted_games == 25
-        assert result.verified_players == 25
+        assert result.verified_attributions == 25

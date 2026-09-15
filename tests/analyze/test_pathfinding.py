@@ -5,7 +5,7 @@ from pacman.analyze.models import (
     Move,
     PathfindingError,
 )
-from pacman.analyze.pathfinding import bfs, distance_to, shortest_path
+from pacman.analyze.pathfinding import bfs, distance_to, path_from_distances, shortest_path
 from pacman.analyze.wasm_pathfinding import WasmPathfinding
 from pacman.replay.maze_codec import encode_topology
 from pacman.replay.models import (
@@ -153,3 +153,24 @@ def test_routed_shortest_path_reconstructs_directed_edges_forward() -> None:
     route = shortest_route(graph, TileIndex(0), TileIndex(2)).unwrap().unwrap()
 
     assert route.tiles == (TileIndex(0), TileIndex(1), TileIndex(2))
+
+
+def test_path_from_distances_rejects_malformed_accelerator_output() -> None:
+    graph = MazeGraph(
+        width=3,
+        height=1,
+        moves=(
+            (Move(TileIndex(1), Direction.RIGHT),),
+            (Move(TileIndex(2), Direction.RIGHT),),
+            (),
+        ),
+    )
+
+    assert isinstance(
+        path_from_distances(graph, TileIndex(0), TileIndex(2), (7, 8, 9)),
+        Nothing,
+    )
+    assert isinstance(
+        path_from_distances(graph, TileIndex(0), TileIndex(2), (0, 1)),
+        Nothing,
+    )
