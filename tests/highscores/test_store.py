@@ -8,6 +8,7 @@ import pytest
 from pacman.highscores.store import HighscoreError, HighscoreStore
 from pacman.highscores.turso import TursoHighscoreStore
 from pacman.models import HighscoreEntry
+from sqlite_callback_store import StoreOptions
 from typed_errs import Err, Ok, Some
 
 
@@ -98,7 +99,10 @@ def test_default_store_uses_turso_and_versioned_sql_migrations(database_path: Pa
         migrations = connection.execute(
             "SELECT version, name FROM schema_migrations ORDER BY version"
         ).fetchall()
-        assert migrations == [(1, "normalize-player-games")]
+        assert migrations == [
+            (1, "normalize-player-games"),
+            (2, "enforce-player-game-invariants"),
+        ]
         assert connection.execute(
             "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'highscores'"
         ).fetchone() == (0,)
@@ -115,7 +119,7 @@ def test_concurrent_initialization_is_idempotent(database_path: Path) -> None:
 
     assert all(isinstance(result, Ok) for result in results)
     with sqlite3.connect(database_path) as connection:
-        assert connection.execute("SELECT COUNT(*) FROM schema_migrations").fetchone() == (1,)
+        assert connection.execute("SELECT COUNT(*) FROM schema_migrations").fetchone() == (2,)
 
 
 def test_legacy_top_ten_rows_migrate_to_attributed_games(database_path: Path) -> None:
@@ -136,6 +140,25 @@ def test_legacy_top_ten_rows_migrate_to_attributed_games(database_path: Path) ->
 
     assert store.load_global(10).unwrap() == [HighscoreEntry("Veya", 99)]
     assert store.player_game_count("Veya").unwrap() == 1
+
+
+def test_legacy_nocase_column_preserves_exact_names(database_path: Path) -> None:
+    database_path.parent.mkdir(parents=True)
+    with sqlite3.connect(database_path) as connection:
+        connection.execute(
+            "CREATE TABLE highscores (id INTEGER PRIMARY KEY, name TEXT COLLATE NOCASE, score INTEGER)"
+        )
+        connection.executemany(
+            "INSERT INTO highscores(name, score) VALUES (?, ?)",
+            (("Alice", 10), ("ALICE", 20)),
+        )
+
+    store = HighscoreStore(database_path)
+    store.initialize_highscores().unwrap()
+
+    assert store.game_count().unwrap() == 2
+    assert store.player_game_count("Alice").unwrap() == 1
+    assert store.player_game_count("ALICE").unwrap() == 1
 
 
 def test_failed_legacy_migration_is_atomic_and_preserves_source(database_path: Path) -> None:
@@ -169,6 +192,33 @@ def test_migration_rejects_an_existing_game_table_without_player_invariant(
     with sqlite3.connect(database_path) as connection:
         assert connection.execute("SELECT COUNT(*) FROM game WHERE player_id IS NULL").fetchone() == (1,)
         assert connection.execute("SELECT COUNT(*) FROM schema_migrations").fetchone() == (0,)
+
+
+def test_version_two_rechecks_databases_already_marked_as_version_one(
+    database_path: Path,
+) -> None:
+    database_path.parent.mkdir(parents=True)
+    with sqlite3.connect(database_path) as connection:
+        connection.execute(
+            "CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, name TEXT, applied_at INTEGER)"
+        )
+        connection.execute(
+            "INSERT INTO schema_migrations VALUES (1, 'normalize-player-games', 0)"
+        )
+        connection.execute("CREATE TABLE player (id INTEGER PRIMARY KEY, name TEXT)")
+        connection.execute(
+            "CREATE TABLE game (id INTEGER PRIMARY KEY, player_id INTEGER, score INTEGER, played_at INTEGER)"
+        )
+        connection.execute("INSERT INTO game(player_id, score, played_at) VALUES (NULL, 99, 0)")
+
+    result = HighscoreStore(
+        database_path,
+        options=StoreOptions(pragmas=("foreign_keys = off",), transaction_pragmas=()),
+    ).initialize_highscores()
+
+    assert isinstance(result, Err)
+    with sqlite3.connect(database_path) as connection:
+        assert connection.execute("SELECT version FROM schema_migrations").fetchall() == [(1,)]
 
 
 def test_migration_rebuilds_valid_preexisting_tables_with_foreign_key(
@@ -249,9 +299,10 @@ def test_turso_bulk_ingestion_handles_empty_and_large_batches(database_path: Pat
     store.initialize_highscores().unwrap()
 
     store.save_many(()).unwrap()
-    store.save_many(tuple(HighscoreEntry(f"P{i % 11}", i) for i in range(1_501))).unwrap()
+    entries = tuple(HighscoreEntry(f"P{i % 11}", i) for i in range(4_001))
+    store.save_many(entries).unwrap()
 
-    assert store.game_count().unwrap() == 1_501
+    assert store.game_count().unwrap() == 4_001
 
 
 def test_unicode_player_names_use_exact_consistent_identity(database_path: Path) -> None:

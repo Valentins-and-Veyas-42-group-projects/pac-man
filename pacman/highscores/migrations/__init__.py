@@ -12,7 +12,10 @@ T = TypeVar("T")
 
 _MIGRATION_PACKAGE = "pacman.highscores.migrations"
 _BOOTSTRAP_FILE = "000_schema_migrations.sql"
-_MIGRATION_FILES = ("001_normalize_player_games.sql",)
+_MIGRATION_FILES = (
+    "001_normalize_player_games.sql",
+    "002_enforce_player_game_invariants.sql",
+)
 
 
 class MigrationStore(Protocol):
