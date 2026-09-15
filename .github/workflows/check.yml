@@ -80,24 +80,5 @@ jobs:
       - name: Run unit and integration tests
         run: uv run pytest -q
 
-      - name: Run disposable integration tools
-        run: uv run python delete_me/main.py
-
-      - name: Simulate a recorded game
-        if: github.ref == 'refs/heads/veya' || github.head_ref == 'veya'
-        run: >-
-          uv run python delete_me/replay/main.py
-          --case simulate
-          --ticks 5000
-          --buffer_size 256
-          --width 21
-          --height 21
-          --seed 42
-
-      - name: Measure replay storage
-        if: github.ref == 'refs/heads/veya' || github.head_ref == 'veya'
-        run: >-
-          uv run python delete_me/replay/main.py
-          --case stress
-          --frames 100000
-          --batch_size 5000
+      - name: Run highscore ingestion smoke benchmark
+        run: uv run python -m benchmarks.highscore_ingestion --games 1000 --rounds 1
