@@ -339,15 +339,10 @@ dependencies = [
     { name = "mazegenerator" },
     { name = "pygame" },
     { name = "python-crimes" },
-    { name = "sqlite-callback-store" },
+    { name = "sqlite-callback-store", extra = ["turso"] },
     { name = "typed-concurrency" },
     { name = "typed-errs" },
     { name = "typed-file-io" },
-]
-
-[package.optional-dependencies]
-turso = [
-    { name = "sqlite-callback-store", extra = ["turso"] },
 ]
 
 [package.dev-dependencies]
@@ -366,13 +361,11 @@ requires-dist = [
     { name = "mazegenerator", path = "vendor/mazegenerator-2.1.0-py3-none-any.whl" },
     { name = "pygame", specifier = ">=2.5" },
     { name = "python-crimes", specifier = ">=0.0.5,<1" },
-    { name = "sqlite-callback-store", specifier = ">=0.0.8" },
-    { name = "sqlite-callback-store", extras = ["turso"], marker = "extra == 'turso'", specifier = ">=0.0.8,<1" },
+    { name = "sqlite-callback-store", extras = ["turso"], specifier = ">=0.0.8,<1" },
     { name = "typed-concurrency", specifier = ">=0,<1" },
     { name = "typed-errs", specifier = ">=0.0.4" },
     { name = "typed-file-io", specifier = ">=0.0.4" },
 ]
-provides-extras = ["turso"]
 
 [package.metadata.requires-dev]
 dev = [
