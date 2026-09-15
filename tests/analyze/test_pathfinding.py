@@ -174,3 +174,20 @@ def test_path_from_distances_rejects_malformed_accelerator_output() -> None:
         path_from_distances(graph, TileIndex(0), TileIndex(2), (0, 1)),
         Nothing,
     )
+
+    graph_with_shortcut = MazeGraph(
+        width=3,
+        height=1,
+        moves=(
+            (
+                Move(TileIndex(1), Direction.RIGHT),
+                Move(TileIndex(2), Direction.LEFT),
+            ),
+            (Move(TileIndex(2), Direction.RIGHT),),
+            (),
+        ),
+    )
+    assert isinstance(
+        path_from_distances(graph_with_shortcut, TileIndex(0), TileIndex(2), (0, 1, 2)),
+        Nothing,
+    )

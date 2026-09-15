@@ -155,11 +155,29 @@ def path_from_distances(
         return Nothing()
 
     incoming: list[list[TileIndex]] = [[] for _ in graph.moves]
-    for source_index, moves in enumerate(graph.moves):
-        source = TileIndex(source_index)
+    for source, moves in enumerate(graph.moves):
         for move in moves:
             if graph.contains(move.destination):
-                incoming[int(move.destination)].append(source)
+                incoming[int(move.destination)].append(TileIndex(source))
+
+    for source, moves in enumerate(graph.moves):
+        source_distance = distances[source]
+        if source_distance < -1:
+            return Nothing()
+        for move in moves:
+            if not graph.contains(move.destination):
+                return Nothing()
+            neighbor_distance = distances[int(move.destination)]
+            if source_distance >= 0 and (
+                neighbor_distance < 0 or neighbor_distance > source_distance + 1
+            ):
+                return Nothing()
+
+    for tile, tile_distance in enumerate(distances):
+        if tile == int(origin) or tile_distance < 0:
+            continue
+        if not any(distances[int(previous)] == tile_distance - 1 for previous in incoming[tile]):
+            return Nothing()
 
     reversed_tiles = [destination]
     current = destination

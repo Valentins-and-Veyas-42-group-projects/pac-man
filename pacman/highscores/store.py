@@ -1,4 +1,4 @@
-"""Turso-first highscore persistence with SQLite-compatible storage."""
+"""Turso highscore persistence."""
 
 import sqlite3
 from collections.abc import Callable, Iterable
@@ -53,7 +53,8 @@ def HighscoreErr(
     )
 
 
-SQL_PARAMETER_BATCH = 1_000
+PLAYER_PARAMETER_BATCH = 1_000
+GAME_ROW_BATCH = 4_000
 SELECT_GLOBAL = """
 SELECT name, score FROM global_highscores
 ORDER BY score DESC, game_id ASC
@@ -174,7 +175,7 @@ class _HighscoreOperations:
 
         def insert(transaction: Transaction) -> Result[None, StorageError]:
             names = tuple(dict.fromkeys(entry.name for entry in validated))
-            for name_batch in _batches(names, SQL_PARAMETER_BATCH):
+            for name_batch in _batches(names, PLAYER_PARAMETER_BATCH):
                 placeholders = ", ".join("(?)" for _ in name_batch)
                 _ = transaction.connection.execute(
                     f"INSERT INTO player(name) VALUES {placeholders} "
@@ -183,7 +184,7 @@ class _HighscoreOperations:
                 )
 
             players: dict[str, int] = {}
-            for name_batch in _batches(names, SQL_PARAMETER_BATCH):
+            for name_batch in _batches(names, PLAYER_PARAMETER_BATCH):
                 placeholders = ", ".join("?" for _ in name_batch)
                 rows = cast(
                     "list[sqlite3.Row]",
@@ -208,7 +209,7 @@ class _HighscoreOperations:
                 (players[entry.name], entry.score, played_at)
                 for entry in validated
             )
-            for game_batch in _batches(game_rows, SQL_PARAMETER_BATCH):
+            for game_batch in _batches(game_rows, GAME_ROW_BATCH):
                 placeholders = ", ".join("(?, ?, ?)" for _ in game_batch)
                 parameters = tuple(value for row in game_batch for value in row)
                 _ = transaction.connection.execute(
@@ -257,7 +258,7 @@ class _HighscoreOperations:
 
 
 class HighscoreStore(_HighscoreOperations, TursoStore):
-    """Default Turso engine with local SQLite-compatible persistence."""
+    """Highscore persistence backed by Turso."""
 
     def __init__(
         self,
@@ -267,13 +268,26 @@ class HighscoreStore(_HighscoreOperations, TursoStore):
         auth_token: str | None = None,
         options: StoreOptions | None = None,
     ) -> None:
-        """Configure local Turso storage with optional cloud sync."""
+        """Configure Turso highscore storage."""
+        selected_options = options or StoreOptions()
+        enforced_options = StoreOptions(
+            timeout=selected_options.timeout,
+            pragmas=(
+                "foreign_keys = on",
+                *(
+                    pragma
+                    for pragma in selected_options.pragmas
+                    if not pragma.lower().replace(" ", "").startswith("foreign_keys=")
+                ),
+            ),
+            transaction_pragmas=selected_options.transaction_pragmas,
+        )
         TursoStore.__init__(
             self,
             db_path,
             remote_url=remote_url,
             auth_token=auth_token,
-            options=options,
+            options=enforced_options,
         )
 
 

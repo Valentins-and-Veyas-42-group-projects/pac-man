@@ -43,16 +43,26 @@ INSERT INTO game_v1(id, player_id, score, played_at)
 SELECT id, player_id, score, played_at FROM game;
 
 INSERT INTO player_v1(name)
-SELECT DISTINCT highscores.name
+SELECT DISTINCT highscores.name COLLATE BINARY
 FROM highscores
 WHERE NOT EXISTS (
-    SELECT 1 FROM player_v1 WHERE player_v1.name = highscores.name
+    SELECT 1 FROM player_v1 WHERE player_v1.name = highscores.name COLLATE BINARY
 );
 
 INSERT INTO game_v1(player_id, score, played_at)
 SELECT player_v1.id, highscores.score, 0
 FROM highscores
-JOIN player_v1 ON player_v1.name = highscores.name;
+JOIN player_v1 ON player_v1.name = highscores.name COLLATE BINARY;
+
+CREATE TEMP TABLE migration_fk_guard_v1 (
+    violations INTEGER NOT NULL CHECK (violations = 0)
+);
+INSERT INTO migration_fk_guard_v1
+SELECT COUNT(*)
+FROM game_v1
+LEFT JOIN player_v1 ON player_v1.id = game_v1.player_id
+WHERE player_v1.id IS NULL;
+DROP TABLE migration_fk_guard_v1;
 
 DROP VIEW IF EXISTS player_highscores;
 DROP VIEW IF EXISTS global_highscores;
