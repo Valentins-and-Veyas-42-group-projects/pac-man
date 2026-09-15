@@ -124,3 +124,58 @@ def shortest_path(
 
     reversed_tiles.reverse()
     return Some(Path(tuple(reversed_tiles)))
+
+
+def path_from_distances(
+    graph: MazeGraph,
+    origin: TileIndex,
+    destination: TileIndex,
+    distances: tuple[int, ...],
+) -> Option[Path]:
+    """Reconstruct a directed route from an accelerator distance field.
+
+    Args:
+        graph: Directed graph used to produce the distances.
+        origin: First tile in the route.
+        destination: Last tile in the route.
+        distances: Shortest distances from ``origin``.
+
+    Returns:
+        A valid forward path, or ``Nothing`` for malformed or unreachable data.
+    """
+    if len(distances) != len(graph.moves):
+        return Nothing()
+    if not graph.contains(origin) or not graph.contains(destination):
+        return Nothing()
+
+    destination_distance = distances[int(destination)]
+    if destination_distance < 0:
+        return Nothing()
+
+    incoming: list[list[TileIndex]] = [[] for _ in graph.moves]
+    for source_index, moves in enumerate(graph.moves):
+        source = TileIndex(source_index)
+        for move in moves:
+            if graph.contains(move.destination):
+                incoming[int(move.destination)].append(source)
+
+    reversed_tiles = [destination]
+    current = destination
+    current_distance = destination_distance
+    while current != origin:
+        previous = next(
+            (
+                candidate
+                for candidate in incoming[int(current)]
+                if distances[int(candidate)] == current_distance - 1
+            ),
+            None,
+        )
+        if previous is None:
+            return Nothing()
+        reversed_tiles.append(previous)
+        current = previous
+        current_distance -= 1
+
+    reversed_tiles.reverse()
+    return Some(Path(tuple(reversed_tiles)))

@@ -37,6 +37,13 @@ class MazeError(Enum):
     INVALID_GRID = "invalid_grid"
 
 
+class Solver(Enum):
+    """Deprecated solver choices retained for caller compatibility."""
+
+    BFS = "bfs"
+    DFS = "dfs"
+
+
 def maze_err(
     error: MazeError,
     diagnostic: Option[Diagnostic],
@@ -210,16 +217,19 @@ class Maze:
         self,
         start: Position,
         target: Position,
+        solver: Solver = Solver.BFS,
     ) -> Option[list[Position]]:
         """Find a shortest path through the shared routed backend.
 
         Args:
             start: Starting maze position.
             target: Desired destination.
+            solver: Deprecated compatibility argument; routing is always shared.
 
         Returns:
             ``Some(path)`` when reachable, otherwise ``Nothing``.
         """
+        _ = solver
         if not self.in_bounds(*start) or not self.in_bounds(*target):
             return Nothing()
 

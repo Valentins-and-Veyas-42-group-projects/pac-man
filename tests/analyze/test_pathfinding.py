@@ -1,4 +1,4 @@
-from pacman.analyze.distance_backend import distances
+from pacman.analyze.distance_backend import distances, shortest_route
 from pacman.analyze.maze_graph import build_maze_graph
 from pacman.analyze.models import (
     MazeGraph,
@@ -137,3 +137,19 @@ def test_shortest_path_returns_nothing_when_destination_is_unavailable() -> None
     assert isinstance(shortest_path(field, TileIndex(3)), Nothing)
     assert isinstance(shortest_path(field, TileIndex(-1)), Nothing)
     assert isinstance(shortest_path(field, TileIndex(6)), Nothing)
+
+
+def test_routed_shortest_path_reconstructs_directed_edges_forward() -> None:
+    graph = MazeGraph(
+        width=3,
+        height=1,
+        moves=(
+            (Move(TileIndex(1), Direction.RIGHT),),
+            (Move(TileIndex(2), Direction.RIGHT),),
+            (),
+        ),
+    )
+
+    route = shortest_route(graph, TileIndex(0), TileIndex(2)).unwrap().unwrap()
+
+    assert route.tiles == (TileIndex(0), TileIndex(1), TileIndex(2))
