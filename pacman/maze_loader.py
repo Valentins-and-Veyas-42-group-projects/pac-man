@@ -8,7 +8,7 @@ Swap in the actual import once a package is assigned for peer review.
 """
 
 from dataclasses import dataclass
-from enum import Enum, IntFlag
+from enum import Enum, IntFlag, auto
 from typing import cast
 
 from mazegenerator import MazeGenerator
@@ -40,8 +40,8 @@ class MazeError(Enum):
 class Solver(Enum):
     """Deprecated solver choices retained for caller compatibility."""
 
-    BFS = "bfs"
-    DFS = "dfs"
+    BFS = auto()
+    DFS = auto()
 
 
 def maze_err(

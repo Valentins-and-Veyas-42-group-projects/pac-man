@@ -51,6 +51,9 @@ def test_legacy_solver_argument_routes_through_the_shared_backend() -> None:
 
     assert maze.path(maze.entry, maze.exit, Solver.BFS).unwrap() == [(0, 0), (1, 0), (2, 0)]
     assert maze.path(maze.entry, maze.exit, Solver.DFS).unwrap() == [(0, 0), (1, 0), (2, 0)]
+
+    assert Solver(1) is Solver.BFS
+    assert Solver(2) is Solver.DFS
     _accelerated_backend.cache_clear()
 
 

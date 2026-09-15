@@ -2,15 +2,19 @@
 
 from __future__ import annotations
 
+import sqlite3
 from argparse import ArgumentParser
 from dataclasses import dataclass
 from pathlib import Path
 from statistics import median
 from tempfile import TemporaryDirectory
 from time import perf_counter
+from typing import cast
 
 from pacman.highscores.store import HighscoreStore
 from pacman.models import HighscoreEntry
+from sqlite_callback_store import StorageError
+from typed_errs import Ok, Result
 
 
 @dataclass(frozen=True, slots=True)
@@ -20,7 +24,7 @@ class IngestionResult:
     seconds: float
     games_per_second: float
     persisted_games: int
-    verified_players: int
+    verified_attributions: int
 
 
 def benchmark_ingestion(
@@ -44,9 +48,10 @@ def benchmark_ingestion(
     root.mkdir(parents=True, exist_ok=True)
     player_count = min(games, 100)
     entries = [HighscoreEntry(f"P{index % player_count}", index) for index in range(games)]
+    expected_attributions = tuple(sorted((entry.name, entry.score) for entry in entries))
     elapsed: list[float] = []
     persisted_games = 0
-    verified_players = 0
+    verified_attributions = 0
 
     for round_number in range(rounds):
         path = root / f"turso-{round_number}.db"
@@ -59,14 +64,13 @@ def benchmark_ingestion(
         elapsed.append(perf_counter() - started)
 
         persisted_games = store.game_count().unwrap()
-        verified_players = sum(
-            store.player_game_count(f"P{index}").unwrap()
-            for index in range(player_count)
-        )
-        if persisted_games != games or verified_players != games:
+        actual_attributions = store.read(_load_attributions).unwrap()
+        verified_attributions = len(actual_attributions)
+        if persisted_games != games or actual_attributions != expected_attributions:
             raise RuntimeError(
                 "Turso attribution verification failed: "
-                f"games={persisted_games}/{games}, players={verified_players}/{games}"
+                f"games={persisted_games}/{games}, "
+                f"attributions={verified_attributions}/{games}"
             )
 
     duration = median(elapsed)
@@ -74,8 +78,24 @@ def benchmark_ingestion(
         seconds=duration,
         games_per_second=games / duration,
         persisted_games=persisted_games,
-        verified_players=verified_players,
+        verified_attributions=verified_attributions,
     )
+
+
+def _load_attributions(
+    connection: sqlite3.Connection,
+) -> Result[tuple[tuple[str, int], ...], StorageError]:
+    rows = cast(
+        "list[sqlite3.Row]",
+        connection.execute(
+            """
+            SELECT player.name, game.score
+            FROM game JOIN player ON player.id = game.player_id
+            ORDER BY player.name ASC, game.score ASC, game.id ASC
+            """
+        ).fetchall(),
+    )
+    return Ok(tuple((cast(str, row["name"]), cast(int, row["score"])) for row in rows))
 
 
 def _remove_database(path: Path) -> None:
@@ -96,7 +116,7 @@ def main() -> None:
     print(
         f"turso: {result.seconds:.6f}s "
         f"({result.games_per_second:,.0f} games/s, "
-        f"{result.verified_players:,} attributed)"
+        f"{result.verified_attributions:,} attributed)"
     )
 
 
