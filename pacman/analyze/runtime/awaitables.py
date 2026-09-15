@@ -2,7 +2,7 @@
 
 from collections.abc import Generator
 from dataclasses import dataclass
-from typing import Generic, TypeVar
+from typing import Generic, TypeVar, cast
 
 from typed_errs import Some
 
@@ -45,7 +45,7 @@ class NextEvent(Generic[EventT]):
         Raises:
             RuntimeError: If the scheduler violates the waiter invariant.
         """
-        received = yield WaitForEvent(self.event_type)
+        received = yield WaitForEvent(cast(type[AnalysisEvent], self.event_type))
 
         if not isinstance(received, Some):
             raise RuntimeError("event waiter resumed without an event")

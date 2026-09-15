@@ -1,19 +1,14 @@
-"""Persistent highscore table (SQLite-backed).
-
-Keeps the top 10 (name, score) rows. Player names are max 10
-characters, alphanumeric and spaces only; scores are non-negative
-integers, per the subject's highscore requirements. Robust to file
-errors (missing file, corrupt database, etc.) -- callers get a
-Result back instead of an exception bubbling up.
-"""
+"""Turso-first highscore persistence with SQLite-compatible storage."""
 
 import sqlite3
+from collections.abc import Callable, Iterable
 from enum import Enum
 from pathlib import Path
-from typing import cast
+from time import time
+from typing import Protocol, TypeVar, cast
 
 from python_crimes import pipe
-from sqlite_callback_store import SQLiteStore, StorageError, StoreOptions, Transaction
+from sqlite_callback_store import SQLiteStore, StorageError, StoreOptions, Transaction, TursoStore
 from typed_errs import Diagnostic, Err, Ok, Result, Some, catch_bubble
 
 from pacman.models import HighscoreEntry
@@ -63,24 +58,277 @@ CREATE TABLE IF NOT EXISTS highscores (
     name TEXT NOT NULL,
     score INTEGER NOT NULL CHECK (score >= 0)
 );
+
+CREATE TABLE IF NOT EXISTS highscore_migration (
+    name TEXT PRIMARY KEY
+);
+
+CREATE TABLE IF NOT EXISTS player (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+    CHECK (length(name) BETWEEN 1 AND 10)
+);
+
+CREATE TABLE IF NOT EXISTS game (
+    id INTEGER PRIMARY KEY,
+    player_id INTEGER NOT NULL REFERENCES player(id),
+    score INTEGER NOT NULL CHECK (score >= 0),
+    played_at INTEGER NOT NULL
+);
+
+INSERT OR IGNORE INTO player(name)
+SELECT DISTINCT name FROM highscores
+WHERE NOT EXISTS (
+    SELECT 1 FROM highscore_migration WHERE name = 'legacy-highscores-v1'
+);
+
+INSERT INTO game(player_id, score, played_at)
+SELECT player.id, highscores.score, 0
+FROM highscores JOIN player ON player.name = highscores.name
+WHERE NOT EXISTS (
+    SELECT 1 FROM highscore_migration WHERE name = 'legacy-highscores-v1'
+);
+
+INSERT OR IGNORE INTO highscore_migration(name) VALUES ('legacy-highscores-v1');
+DROP TABLE highscores;
+
+CREATE INDEX IF NOT EXISTS game_global_score_idx
+ON game(score DESC, id ASC);
+CREATE INDEX IF NOT EXISTS game_player_score_idx
+ON game(player_id, score DESC, id ASC);
+
+DROP VIEW IF EXISTS global_highscores;
+CREATE VIEW global_highscores AS
+SELECT
+    game.id AS game_id,
+    player.id AS player_id,
+    player.name AS name,
+    game.score AS score,
+    game.played_at AS played_at
+FROM game JOIN player ON player.id = game.player_id;
+
+DROP VIEW IF EXISTS player_highscores;
+CREATE VIEW player_highscores AS
+SELECT
+    game.id AS game_id,
+    player.id AS player_id,
+    player.name AS name,
+    game.score AS score,
+    game.played_at AS played_at,
+    ROW_NUMBER() OVER (
+        PARTITION BY player.id ORDER BY game.score DESC, game.id ASC
+    ) AS player_rank
+FROM game JOIN player ON player.id = game.player_id;
 """
 
-INSERT_HIGHSCORE = "INSERT INTO highscores(name, score) VALUES (?, ?)"
-TRIM_HIGHSCORES = """
-DELETE FROM highscores
-WHERE id NOT IN (
-    SELECT id FROM highscores ORDER BY score DESC, id ASC LIMIT 10
-)
+INSERT_PLAYER = "INSERT INTO player(name) VALUES (?) ON CONFLICT(name) DO NOTHING"
+SELECT_PLAYER_ID = "SELECT id FROM player WHERE name = ? COLLATE NOCASE"
+INSERT_GAME = "INSERT INTO game(player_id, score, played_at) VALUES (?, ?, ?)"
+SELECT_GLOBAL = """
+SELECT name, score FROM global_highscores
+ORDER BY score DESC, game_id ASC
+LIMIT ?
 """
-SELECT_HIGHSCORES = """
-SELECT name, score FROM highscores
-ORDER BY score DESC, id ASC
+SELECT_PLAYER = """
+SELECT name, score FROM player_highscores
+WHERE name = ? COLLATE NOCASE
+ORDER BY player_rank ASC
 LIMIT ?
 """
 
+T = TypeVar("T")
 
-class HighscoreStore(SQLiteStore):
-    """Loads and saves the persistent top-10 highscore table."""
+
+class _Store(Protocol):
+    """Structural storage API used by both database engines."""
+
+    def initialize(self, schema: str) -> Result[None, StorageError]: ...
+
+    def read(
+        self,
+        operation: Callable[[sqlite3.Connection], Result[T, StorageError]],
+    ) -> Result[T, StorageError]: ...
+
+    def transaction(
+        self,
+        operation: Callable[[Transaction], Result[T, StorageError]],
+    ) -> Result[T, StorageError]: ...
+
+
+class _HighscoreOperations:
+    """Engine-independent highscore queries and writes."""
+
+    @property
+    def _store(self) -> _Store:
+        return cast(_Store, self)
+
+    @catch_bubble
+    def initialize_highscores(self) -> Result[None, HighscoreError]:
+        """Create or migrate the player, game, and leaderboard schema.
+
+        Returns:
+            Success or a diagnosed storage failure.
+        """
+        _ = (
+            self._store.initialize(SCHEMA)
+            .map_err_with(_storage_err.with_(operation="initialize the highscore database"))
+            .q
+        )
+        return Ok(None)
+
+    @catch_bubble
+    def load_top(self, limit: int) -> Result[list[HighscoreEntry], HighscoreError]:
+        """Load the global top scores for subject-compatible callers.
+
+        Returns:
+            Ordered entries or a validation/storage failure.
+        """
+        return self.load_global(limit)
+
+    @catch_bubble
+    def load_global(self, limit: int) -> Result[list[HighscoreEntry], HighscoreError]:
+        """Load the global leaderboard ordered by score descending.
+
+        Returns:
+            Ordered global entries or a validation/storage failure.
+        """
+        valid_limit = (limit @ _validate_limit).q
+        entries = (
+            self._store.read(lambda connection: _select_entries(connection, SELECT_GLOBAL, (valid_limit,)))
+            .map_err_with(_storage_err.with_(operation="load global highscores"))
+            .q
+        )
+        return Ok(cast(list[HighscoreEntry], entries))
+
+    @catch_bubble
+    def load_player(self, name: str, limit: int) -> Result[list[HighscoreEntry], HighscoreError]:
+        """Load one player's best games without mixing in other players.
+
+        Returns:
+            Ordered player entries or a validation/storage failure.
+        """
+        valid_name = (HighscoreEntry(name, 0) @ _validate_entry).q.name
+        valid_limit = (limit @ _validate_limit).q
+        entries = (
+            self._store.read(
+                lambda connection: _select_entries(
+                    connection,
+                    SELECT_PLAYER,
+                    (valid_name, valid_limit),
+                )
+            )
+            .map_err_with(_storage_err.with_(operation="load player highscores"))
+            .q
+        )
+        return Ok(cast(list[HighscoreEntry], entries))
+
+    @catch_bubble
+    def save(self, entry: HighscoreEntry) -> Result[None, HighscoreError]:
+        """Persist one game attributed to exactly one validated player.
+
+        Returns:
+            Success or a validation/storage failure.
+        """
+        _ = self.save_many((entry,)).q
+        return Ok(None)
+
+    @catch_bubble
+    def save_many(self, entries: Iterable[HighscoreEntry]) -> Result[None, HighscoreError]:
+        """Persist multiple attributed games in one transaction.
+
+        Returns:
+            Success or the first validation/storage failure.
+        """
+        validated = tuple((entry @ _validate_entry).q for entry in entries)
+        played_at = int(time())
+
+        def insert(transaction: Transaction) -> Result[None, StorageError]:
+            players: dict[str, int] = {}
+            game_rows: list[tuple[int, int, int]] = []
+            for entry in validated:
+                player_key = entry.name.casefold()
+                player_id = players.get(player_key)
+                if player_id is None:
+                    _ = transaction.connection.execute(INSERT_PLAYER, (entry.name,))
+                    row = cast(
+                        "sqlite3.Row | tuple[int] | None",
+                        transaction.connection.execute(SELECT_PLAYER_ID, (entry.name,)).fetchone(),
+                    )
+                    if row is None:
+                        return Err(
+                            StorageError.OPERATION_FAILED,
+                            namespace="highscores::store",
+                            context_msg="Player insert returned no identifier",
+                        )
+                    player_id = cast(int, row[0])
+                    players[player_key] = player_id
+                game_rows.append((player_id, entry.score, played_at))
+
+            _ = transaction.connection.executemany(INSERT_GAME, game_rows)
+            return Ok(None)
+
+        _ = (
+            self._store.transaction(insert)
+            .map_err_with(_storage_err.with_(operation="save highscore games"))
+            .q
+        )
+        return Ok(None)
+
+    @catch_bubble
+    def game_count(self) -> Result[int, HighscoreError]:
+        """Return the number of persisted games."""
+        count = (
+            self._store.read(lambda connection: _select_count(connection, "SELECT COUNT(*) FROM game", ()))
+            .map_err_with(_storage_err.with_(operation="count highscore games"))
+            .q
+        )
+        return Ok(cast(int, count))
+
+    @catch_bubble
+    def player_game_count(self, name: str) -> Result[int, HighscoreError]:
+        """Return the number of games attributed to one player."""
+        valid_name = (HighscoreEntry(name, 0) @ _validate_entry).q.name
+        count = (
+            self._store.read(
+                lambda connection: _select_count(
+                    connection,
+                    """
+                    SELECT COUNT(*) FROM game
+                    JOIN player ON player.id = game.player_id
+                    WHERE player.name = ? COLLATE NOCASE
+                    """,
+                    (valid_name,),
+                )
+            )
+            .map_err_with(_storage_err.with_(operation="count player games"))
+            .q
+        )
+        return Ok(cast(int, count))
+
+
+class HighscoreStore(_HighscoreOperations, TursoStore):
+    """Default Turso engine with local SQLite-compatible persistence."""
+
+    def __init__(
+        self,
+        db_path: str | Path,
+        *,
+        remote_url: str | None = None,
+        auth_token: str | None = None,
+        options: StoreOptions | None = None,
+    ) -> None:
+        """Configure local Turso storage with optional cloud sync."""
+        TursoStore.__init__(
+            self,
+            db_path,
+            remote_url=remote_url,
+            auth_token=auth_token,
+            options=options,
+        )
+
+
+class SQLiteHighscoreStore(_HighscoreOperations, SQLiteStore):
+    """Explicit CPython SQLite fallback sharing the same schema and API."""
 
     def __init__(
         self,
@@ -88,71 +336,32 @@ class HighscoreStore(SQLiteStore):
         *,
         options: StoreOptions | None = None,
     ) -> None:
-        """Create a store for the given database path."""
-        super().__init__(db_path, options=options)
+        """Configure the standard-library SQLite engine."""
+        SQLiteStore.__init__(self, db_path, options=options)
 
-    @catch_bubble
-    def initialize_highscores(self) -> Result[None, HighscoreError]:
-        """Create the highscore table when it does not exist.
 
-        Returns:
-            Success or a diagnosed storage failure.
-        """
-        _ = self.initialize(SCHEMA).map_err_with(_storage_err.with_(operation="initialize the highscore database")).q
-        return Ok(None)
+def _select_entries(
+    connection: sqlite3.Connection,
+    query: str,
+    parameters: tuple[object, ...],
+) -> Result[list[HighscoreEntry], StorageError]:
+    rows = cast("list[sqlite3.Row]", connection.execute(query, parameters).fetchall())
+    return Ok([HighscoreEntry(name=cast(str, row["name"]), score=cast(int, row["score"])) for row in rows])
 
-    @catch_bubble
-    def load_top(self, limit: int) -> Result[list[HighscoreEntry], HighscoreError]:
-        """Load the top `limit` highscores, ordered by score descending.
 
-        Returns:
-            Ordered entries or a diagnosed validation or storage failure.
-        """
-
-        def select(
-            connection: sqlite3.Connection,
-            valid_limit: int,
-        ) -> Result[list[HighscoreEntry], StorageError]:
-            rows = cast(
-                "list[sqlite3.Row]",
-                connection.execute(SELECT_HIGHSCORES, (valid_limit,)).fetchall(),
-            )
-            return Ok([
-                HighscoreEntry(
-                    name=cast(str, row["name"]),
-                    score=cast(int, row["score"]),
-                )
-                for row in rows
-            ])
-
-        valid_limit = (limit @ _validate_limit).q
-        entries = (
-            self
-            .read(lambda connection: select(connection, valid_limit))
-            .map_err_with(_storage_err.with_(operation="load highscores"))
-            .q
+def _select_count(
+    connection: sqlite3.Connection,
+    query: str,
+    parameters: tuple[object, ...],
+) -> Result[int, StorageError]:
+    row = cast("sqlite3.Row | tuple[int] | None", connection.execute(query, parameters).fetchone())
+    if row is None:
+        return Err(
+            StorageError.OPERATION_FAILED,
+            namespace="highscores::store",
+            context_msg="Count query returned no row",
         )
-        return Ok(entries)
-
-    @catch_bubble
-    def save(self, entry: HighscoreEntry) -> Result[None, HighscoreError]:
-        """Validate and persist a new highscore entry.
-
-        Returns:
-            Success or a diagnosed validation or storage failure.
-        """
-
-        def insert(transaction: Transaction) -> Result[None, StorageError]:
-            _ = transaction.connection.execute(
-                INSERT_HIGHSCORE,
-                (valid_entry.name, valid_entry.score),
-            )
-            _ = transaction.connection.execute(TRIM_HIGHSCORES)
-            return Ok(None)
-
-        valid_entry = (entry @ _validate_entry).q
-        _ = self.transaction(insert).map_err_with(_storage_err.with_(operation="save the highscore")).q
-        return Ok(None)
+    return Ok(cast(int, row[0]))
 
 
 @pipe
@@ -179,7 +388,7 @@ def _validate_limit(limit: int) -> Result[int, HighscoreError]:
     """Validate a requested highscore count.
 
     Returns:
-        The valid limit or a diagnosed validation failure.
+        The accepted limit or a validation failure.
     """
     if isinstance(limit, bool) or not 0 <= limit <= 10:
         return HighscoreErr(
@@ -192,13 +401,11 @@ def _validate_limit(limit: int) -> Result[int, HighscoreError]:
 
 
 @pipe
-def _validate_entry(
-    entry: HighscoreEntry,
-) -> Result[HighscoreEntry, HighscoreError]:
+def _validate_entry(entry: HighscoreEntry) -> Result[HighscoreEntry, HighscoreError]:
     """Validate a highscore at the persistence boundary.
 
     Returns:
-        The valid entry or a diagnosed validation failure.
+        The accepted entry or a validation failure.
     """
     if (
         not entry.name
@@ -213,7 +420,7 @@ def _validate_entry(
             "Invalid player name",
         )
 
-    if isinstance(entry.score, bool) or entry.score < 0:
+    if isinstance(entry.score, bool) or not isinstance(entry.score, int) or entry.score < 0:
         return HighscoreErr(
             HighscoreError.INVALID_SCORE,
             entry.score,

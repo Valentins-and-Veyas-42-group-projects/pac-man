@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import cast
 
 from cli_fw import Command, arg
-from pacman.maze_loader import MazeError, Solver, load_maze
+from pacman.maze_loader import MazeError, load_maze
 from typed_errs import Err, Nothing, Ok, Option, Result, Some
 
 
@@ -70,23 +70,15 @@ def run(args: MazeArgs) -> Result[None, MazeError]:
                 print(f"  {name:<5}: {movable}")
             print()
 
-            bfs = maze.path(maze.entry, maze.exit, Solver.BFS)
-            dfs = maze.path(maze.entry, maze.exit, Solver.DFS)
+            route = maze.path(maze.entry, maze.exit)
             print("pathfinding:")
 
-            match bfs:
+            match route:
                 case Some(path):
-                    print(f"  BFS path length: {len(path)}")
-                    print(f"  BFS first steps: {path[:10]}")
+                    print(f"  routed path length: {len(path)}")
+                    print(f"  routed first steps: {path[:10]}")
                 case Nothing():
-                    print("  BFS: no path")
-
-            match dfs:
-                case Some(path):
-                    print(f"  DFS path length: {len(path)}")
-                    print(f"  DFS first steps: {path[:10]}")
-                case Nothing():
-                    print("  DFS: no path")
+                    print("  routed backend: no path")
 
             return Ok(None)
 
