@@ -89,7 +89,9 @@ def predict_ghost(
     if not graph.contains(origin):
         return prediction_err(PredictionError.INVALID_GHOST_TILE)
 
-    current = (PredictedGhostState(ghost.ghost, origin, ghost.direction, 0, ghost.state),)
+    current: tuple[PredictedGhostState, ...] = (
+        PredictedGhostState(ghost.ghost, origin, ghost.direction, 0, ghost.state),
+    )
     ticks: list[tuple[PredictedGhostState, ...]] = [current]
 
     for tick in range(1, horizon + 1):

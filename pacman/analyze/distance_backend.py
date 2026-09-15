@@ -8,7 +8,7 @@ from typing import Protocol, cast
 
 from typed_errs import Err, Nothing, Ok, Option, Result, Some
 
-from pacman.analyze.models import MazeGraph, PathfindingError
+from pacman.analyze.models import MazeGraph, Path, PathfindingError
 from pacman.analyze.pathfinding import bfs, pathfinding_err
 from pacman.replay.models import TileIndex
 
@@ -106,3 +106,57 @@ def distances(
         return pathfinding_err(reference.error)
 
     return Ok(reference.value.distances)
+
+
+def shortest_route(
+    graph: MazeGraph,
+    origin: TileIndex,
+    destination: TileIndex,
+) -> Result[Option[Path], PathfindingError]:
+    """Find a shortest route through the selected distance backend.
+
+    Accelerated backends return only distance fields. A route can be
+    reconstructed by walking backwards to neighbours whose distance is one
+    smaller, avoiding a second Python BFS.
+
+    Args:
+        graph: Immutable maze graph to search.
+        origin: First tile in the route.
+        destination: Last tile in the route.
+
+    Returns:
+        A routed shortest path, ``Nothing`` when unreachable, or an invalid
+        origin error.
+    """
+    if not graph.contains(destination):
+        return Ok(Nothing())
+
+    searched = distances(graph, origin)
+    if isinstance(searched, Err):
+        return searched
+
+    field = searched.value
+    destination_distance = field[int(destination)]
+    if destination_distance < 0:
+        return Ok(Nothing())
+
+    reversed_tiles = [destination]
+    current = destination
+    current_distance = destination_distance
+    while current != origin:
+        previous = next(
+            (
+                move.destination
+                for move in graph.neighbors(current)
+                if field[int(move.destination)] == current_distance - 1
+            ),
+            None,
+        )
+        if previous is None:
+            return Ok(Nothing())
+        reversed_tiles.append(previous)
+        current = previous
+        current_distance -= 1
+
+    reversed_tiles.reverse()
+    return Ok(Some(Path(tuple(reversed_tiles))))

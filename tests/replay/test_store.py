@@ -1,5 +1,7 @@
 """Unit tests for replay persistence and reconstruction."""
 
+from pathlib import Path
+
 import pytest
 from pacman.replay.models import (
     Collectible,
@@ -117,7 +119,7 @@ def test_missing_records_return_errors(store: ReplayStore) -> None:
     assert isinstance(store.finish(ReplayId(999)), Err)
 
 
-def test_turso_replay_store_roundtrip(tmp_path, maze: EncodedMaze) -> None:
+def test_turso_replay_store_roundtrip(tmp_path: Path, maze: EncodedMaze) -> None:
     """The optional Turso adapter persists real replay-domain values."""
     pytest.importorskip("turso")
     store = TursoReplayStore(tmp_path / "turso-replay.db")

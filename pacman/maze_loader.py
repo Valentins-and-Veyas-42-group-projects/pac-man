@@ -7,9 +7,8 @@ its interface (not the other way around), with `PERFECT` forced to
 Swap in the actual import once a package is assigned for peer review.
 """
 
-from collections import deque
 from dataclasses import dataclass
-from enum import Enum, IntFlag, auto
+from enum import Enum, IntFlag
 from typing import cast
 
 from mazegenerator import MazeGenerator
@@ -23,6 +22,10 @@ from typed_errs import (
     Result,
     Some,
 )
+
+from pacman.analyze.distance_backend import shortest_route
+from pacman.analyze.models import MazeGraph, Move
+from pacman.replay.models import Direction, TileIndex
 
 Position = tuple[int, int]
 
@@ -83,13 +86,6 @@ class Wall(IntFlag):
     EAST = 2
     SOUTH = 4
     WEST = 8
-
-
-class Solver(Enum):
-    """Available maze path-finding strategies."""
-
-    BFS = auto()
-    DFS = auto()
 
 
 @pipe
@@ -214,140 +210,59 @@ class Maze:
         self,
         start: Position,
         target: Position,
-        solver: Solver = Solver.BFS,
     ) -> Option[list[Position]]:
-        """Find a path using the selected solving strategy.
+        """Find a shortest path through the shared routed backend.
 
         Args:
             start: Starting maze position.
             target: Desired destination.
-            solver: Search strategy to use.
 
         Returns:
             ``Some(path)`` when reachable, otherwise ``Nothing``.
         """
-        if not self.in_bounds(*start):
+        if not self.in_bounds(*start) or not self.in_bounds(*target):
             return Nothing()
 
-        if not self.in_bounds(*target):
+        graph = self._graph()
+        origin = TileIndex(start[1] * self.width + start[0])
+        destination = TileIndex(target[1] * self.width + target[0])
+        routed = shortest_route(graph, origin, destination)
+        if isinstance(routed, Err) or isinstance(routed.value, Nothing):
             return Nothing()
 
-        if start == target:
-            return Some([start])
-
-        def use_bfs(_solver: Solver) -> Option[list[Position]]:
-            return self._bfs(start, target)
-
-        def use_dfs(_solver: Solver) -> Option[list[Position]]:
-            return self._dfs(start, target)
-
-        return cast(
-            Option[list[Position]],
-            (
-                match_(solver)
-                .case(Solver.BFS)
-                .then(use_bfs)
-                .case(Solver.DFS)
-                .then(use_dfs)
-                .default.then(Nothing())
-                .value
-            ),
+        return Some(
+            [
+                (int(tile) % self.width, int(tile) // self.width)
+                for tile in routed.value.value.tiles
+            ]
         )
 
-    def _bfs(
-        self,
-        start: Position,
-        target: Position,
-    ) -> Option[list[Position]]:
-        """Find the shortest unweighted path using breadth-first search.
+    def _graph(self) -> MazeGraph:
+        """Adapt generator wall masks to the shared immutable graph.
 
         Returns:
-            The discovered path, or ``Nothing`` when no path exists.
+            An immutable graph accepted by every routed backend.
         """
-        frontier: deque[Position] = deque([start])
-        previous: dict[Position, Position] = {}
-        seen: set[Position] = {start}
-
-        while frontier:
-            current = frontier.popleft()
-
-            for neighbor in self.neighbors(*current):
-                if neighbor in seen:
-                    continue
-
-                seen.add(neighbor)
-                previous[neighbor] = current
-
-                if neighbor == target:
-                    return Some(
-                        self._reconstruct(
-                            previous,
-                            start,
-                            target,
+        directions = (
+            ((0, -1), Direction.UP),
+            ((1, 0), Direction.RIGHT),
+            ((0, 1), Direction.DOWN),
+            ((-1, 0), Direction.LEFT),
+        )
+        moves: list[tuple[Move, ...]] = []
+        for y in range(self.height):
+            for x in range(self.width):
+                moves.append(
+                    tuple(
+                        Move(
+                            destination=TileIndex((y + dy) * self.width + x + dx),
+                            direction=direction,
                         )
+                        for (dx, dy), direction in directions
+                        if self.can_move(x, y, dx, dy)
                     )
-
-                frontier.append(neighbor)
-
-        return Nothing()
-
-    def _dfs(
-        self,
-        start: Position,
-        target: Position,
-    ) -> Option[list[Position]]:
-        """Find a reachable path using depth-first search.
-
-        Returns:
-            A discovered path, or ``Nothing`` when no path exists.
-        """
-        frontier: list[Position] = [start]
-        previous: dict[Position, Position] = {}
-        seen: set[Position] = {start}
-
-        while frontier:
-            current = frontier.pop()
-
-            for neighbor in self.neighbors(*current):
-                if neighbor in seen:
-                    continue
-
-                seen.add(neighbor)
-                previous[neighbor] = current
-
-                if neighbor == target:
-                    return Some(
-                        self._reconstruct(
-                            previous,
-                            start,
-                            target,
-                        )
-                    )
-
-                frontier.append(neighbor)
-
-        return Nothing()
-
-    @staticmethod
-    def _reconstruct(
-        previous: dict[Position, Position],
-        start: Position,
-        target: Position,
-    ) -> list[Position]:
-        """Reconstruct a discovered path from target back to start.
-
-        Returns:
-            The path ordered from start through target.
-        """
-        path: list[Position] = [target]
-        current = target
-
-        while current != start:
-            current = previous[current]
-            path.append(current)
-
-        path.reverse()
-        return path
+                )
+        return MazeGraph(width=self.width, height=self.height, moves=tuple(moves))
 
 
 def load_maze(
