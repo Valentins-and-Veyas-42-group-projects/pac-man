@@ -137,6 +137,52 @@ def test_failed_legacy_migration_is_atomic_and_preserves_source(database_path: P
         assert connection.execute("SELECT COUNT(*) FROM schema_migrations").fetchone() == (0,)
 
 
+def test_migration_rejects_an_existing_game_table_without_player_invariant(
+    database_path: Path,
+) -> None:
+    database_path.parent.mkdir(parents=True)
+    with sqlite3.connect(database_path) as connection:
+        connection.execute("CREATE TABLE player (id INTEGER PRIMARY KEY, name TEXT)")
+        connection.execute(
+            "CREATE TABLE game (id INTEGER PRIMARY KEY, player_id INTEGER, score INTEGER, played_at INTEGER)"
+        )
+        connection.execute("INSERT INTO game(player_id, score, played_at) VALUES (NULL, 99, 0)")
+
+    result = HighscoreStore(database_path).initialize_highscores()
+
+    assert isinstance(result, Err)
+    with sqlite3.connect(database_path) as connection:
+        assert connection.execute("SELECT COUNT(*) FROM game WHERE player_id IS NULL").fetchone() == (1,)
+        assert connection.execute("SELECT COUNT(*) FROM schema_migrations").fetchone() == (0,)
+
+
+def test_migration_rebuilds_valid_preexisting_tables_with_foreign_key(
+    database_path: Path,
+) -> None:
+    database_path.parent.mkdir(parents=True)
+    with sqlite3.connect(database_path) as connection:
+        connection.execute("CREATE TABLE player (id INTEGER PRIMARY KEY, name TEXT)")
+        connection.execute(
+            "CREATE TABLE game (id INTEGER PRIMARY KEY, player_id INTEGER, score INTEGER, played_at INTEGER)"
+        )
+        connection.execute("INSERT INTO player(id, name) VALUES (1, 'Veya')")
+        connection.execute("INSERT INTO game(player_id, score, played_at) VALUES (1, 99, 0)")
+
+    store = HighscoreStore(database_path)
+    store.initialize_highscores().unwrap()
+
+    assert store.game_count().unwrap() == 1
+    invalid = store.transaction(
+        lambda transaction: Ok(
+            transaction.connection.execute(
+                "INSERT INTO game(player_id, score, played_at) VALUES (?, ?, ?)",
+                (999, 1, 0),
+            )
+        )
+    )
+    assert isinstance(invalid, Err)
+
+
 def test_each_game_belongs_to_exactly_one_player(database_path: Path) -> None:
     """Every persisted game has one non-null player foreign key."""
     store = HighscoreStore(database_path)
@@ -181,6 +227,26 @@ def test_turso_bulk_ingestion_preserves_every_attributed_game(database_path: Pat
 
     assert turso.game_count().unwrap() == 100
     assert turso.player_game_count("P0").unwrap() == 10
+
+
+def test_turso_bulk_ingestion_handles_empty_and_large_batches(database_path: Path) -> None:
+    store = HighscoreStore(database_path)
+    store.initialize_highscores().unwrap()
+
+    store.save_many(()).unwrap()
+    store.save_many(tuple(HighscoreEntry(f"P{i % 11}", i) for i in range(1_501))).unwrap()
+
+    assert store.game_count().unwrap() == 1_501
+
+
+def test_unicode_player_names_use_exact_consistent_identity(database_path: Path) -> None:
+    store = HighscoreStore(database_path)
+    store.initialize_highscores().unwrap()
+    store.save_many((HighscoreEntry("Straße", 10), HighscoreEntry("STRASSE", 20))).unwrap()
+
+    assert store.player_game_count("Straße").unwrap() == 1
+    assert store.player_game_count("STRASSE").unwrap() == 1
+    assert store.load_player("Straße", 10).unwrap() == [HighscoreEntry("Straße", 10)]
 
 
 def test_turso_connections_enforce_game_player_foreign_key(database_path: Path) -> None:

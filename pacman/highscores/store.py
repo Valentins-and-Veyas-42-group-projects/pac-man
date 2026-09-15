@@ -61,7 +61,7 @@ LIMIT ?
 """
 SELECT_PLAYER = """
 SELECT name, score FROM player_highscores
-WHERE name = ? COLLATE NOCASE
+WHERE name = ?
 ORDER BY player_rank ASC
 LIMIT ?
 """
@@ -173,7 +173,7 @@ class _HighscoreOperations:
         played_at = int(time())
 
         def insert(transaction: Transaction) -> Result[None, StorageError]:
-            names = tuple(dict((entry.name.casefold(), entry.name) for entry in validated).values())
+            names = tuple(dict.fromkeys(entry.name for entry in validated))
             for name_batch in _batches(names, SQL_PARAMETER_BATCH):
                 placeholders = ", ".join("(?)" for _ in name_batch)
                 _ = transaction.connection.execute(
@@ -193,7 +193,7 @@ class _HighscoreOperations:
                     ).fetchall(),
                 )
                 players.update(
-                    (cast(str, row["name"]).casefold(), cast(int, row["id"]))
+                    (cast(str, row["name"]), cast(int, row["id"]))
                     for row in rows
                 )
 
@@ -205,7 +205,7 @@ class _HighscoreOperations:
                 )
 
             game_rows = tuple(
-                (players[entry.name.casefold()], entry.score, played_at)
+                (players[entry.name], entry.score, played_at)
                 for entry in validated
             )
             for game_batch in _batches(game_rows, SQL_PARAMETER_BATCH):
@@ -245,7 +245,7 @@ class _HighscoreOperations:
                     """
                     SELECT COUNT(*) FROM game
                     JOIN player ON player.id = game.player_id
-                    WHERE player.name = ? COLLATE NOCASE
+                    WHERE player.name = ?
                     """,
                     (valid_name,),
                 )
