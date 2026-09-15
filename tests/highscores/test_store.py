@@ -4,10 +4,10 @@ import sqlite3
 from pathlib import Path
 
 import pytest
-from pacman.highscores.store import HighscoreError, HighscoreStore, SQLiteHighscoreStore
+from pacman.highscores.store import HighscoreError, HighscoreStore
 from pacman.highscores.turso import TursoHighscoreStore
 from pacman.models import HighscoreEntry
-from typed_errs import Err, Some
+from typed_errs import Err, Ok, Some
 
 
 @pytest.fixture
@@ -77,15 +77,13 @@ def test_turso_highscores_use_the_existing_store_contract(database_path: Path) -
     assert store.load_top(10).unwrap() == [HighscoreEntry("Veya", 42)]
 
 
-def test_default_store_uses_turso_with_a_sqlite_compatible_file(database_path: Path) -> None:
-    """The default engine is Turso while its local database remains SQLite compatible."""
+def test_default_store_uses_turso_and_versioned_sql_migrations(database_path: Path) -> None:
+    """The only engine is Turso and its migrations are recorded in the database."""
     pytest.importorskip("turso")
     store = HighscoreStore(database_path)
     store.initialize_highscores().unwrap()
     store.save(HighscoreEntry("Veya", 42)).unwrap()
 
-    sqlite_store = SQLiteHighscoreStore(database_path)
-    assert sqlite_store.load_top(10).unwrap() == [HighscoreEntry("Veya", 42)]
     with sqlite3.connect(database_path) as connection:
         views = {
             row[0]
@@ -96,6 +94,13 @@ def test_default_store_uses_turso_with_a_sqlite_compatible_file(database_path: P
         assert views >= {"global_highscores", "player_highscores"}
         foreign_keys = connection.execute("PRAGMA foreign_key_list(game)").fetchall()
         assert [(row[2], row[3]) for row in foreign_keys] == [("player", "player_id")]
+        migrations = connection.execute(
+            "SELECT version, name FROM schema_migrations ORDER BY version"
+        ).fetchall()
+        assert migrations == [(1, "normalize-player-games")]
+        assert connection.execute(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'highscores'"
+        ).fetchone() == (0,)
 
 
 def test_legacy_top_ten_rows_migrate_to_attributed_games(database_path: Path) -> None:
@@ -116,6 +121,20 @@ def test_legacy_top_ten_rows_migrate_to_attributed_games(database_path: Path) ->
 
     assert store.load_global(10).unwrap() == [HighscoreEntry("Veya", 99)]
     assert store.player_game_count("Veya").unwrap() == 1
+
+
+def test_failed_legacy_migration_is_atomic_and_preserves_source(database_path: Path) -> None:
+    database_path.parent.mkdir(parents=True)
+    with sqlite3.connect(database_path) as connection:
+        connection.execute("CREATE TABLE highscores (id INTEGER PRIMARY KEY, name TEXT, score INTEGER)")
+        connection.execute("INSERT INTO highscores(name, score) VALUES (NULL, 99)")
+
+    result = HighscoreStore(database_path).initialize_highscores()
+
+    assert isinstance(result, Err)
+    with sqlite3.connect(database_path) as connection:
+        assert connection.execute("SELECT COUNT(*) FROM highscores").fetchone() == (1,)
+        assert connection.execute("SELECT COUNT(*) FROM schema_migrations").fetchone() == (0,)
 
 
 def test_each_game_belongs_to_exactly_one_player(database_path: Path) -> None:
@@ -153,15 +172,29 @@ def test_global_and_per_player_highscore_views(database_path: Path) -> None:
     ]
 
 
-def test_sqlite_and_turso_bulk_ingestion_share_the_contract(database_path: Path) -> None:
-    """Both engines ingest batches and expose identical rankings."""
+def test_turso_bulk_ingestion_preserves_every_attributed_game(database_path: Path) -> None:
+    """Turso ingests batches and exposes complete rankings."""
     entries = [HighscoreEntry(f"P{i % 10}", i) for i in range(100)]
-    turso = HighscoreStore(database_path.with_name("turso.db"))
-    sqlite = SQLiteHighscoreStore(database_path.with_name("sqlite.db"))
+    turso = HighscoreStore(database_path)
+    turso.initialize_highscores().unwrap()
+    turso.save_many(entries).unwrap()
 
-    for store in (turso, sqlite):
-        store.initialize_highscores().unwrap()
-        store.save_many(entries).unwrap()
+    assert turso.game_count().unwrap() == 100
+    assert turso.player_game_count("P0").unwrap() == 10
 
-    assert turso.load_global(10).unwrap() == sqlite.load_global(10).unwrap()
-    assert turso.game_count().unwrap() == sqlite.game_count().unwrap() == 100
+
+def test_turso_connections_enforce_game_player_foreign_key(database_path: Path) -> None:
+    store = HighscoreStore(database_path)
+    store.initialize_highscores().unwrap()
+
+    result = store.transaction(
+        lambda transaction: Ok(
+            transaction.connection.execute(
+                "INSERT INTO game(player_id, score, played_at) VALUES (?, ?, ?)",
+                (999, 10, 0),
+            )
+        )
+    )
+
+    assert isinstance(result, Err)
+    assert store.game_count().unwrap() == 0
