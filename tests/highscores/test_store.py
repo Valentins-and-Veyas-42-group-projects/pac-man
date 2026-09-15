@@ -1,6 +1,7 @@
 """Integration tests for persistent highscores."""
 
 import sqlite3
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -101,6 +102,20 @@ def test_default_store_uses_turso_and_versioned_sql_migrations(database_path: Pa
         assert connection.execute(
             "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'highscores'"
         ).fetchone() == (0,)
+
+
+def test_concurrent_initialization_is_idempotent(database_path: Path) -> None:
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = tuple(
+            pool.map(
+                lambda _: HighscoreStore(database_path).initialize_highscores(),
+                range(2),
+            )
+        )
+
+    assert all(isinstance(result, Ok) for result in results)
+    with sqlite3.connect(database_path) as connection:
+        assert connection.execute("SELECT COUNT(*) FROM schema_migrations").fetchone() == (1,)
 
 
 def test_legacy_top_ten_rows_migrate_to_attributed_games(database_path: Path) -> None:
