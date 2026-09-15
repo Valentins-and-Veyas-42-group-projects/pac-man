@@ -8,9 +8,10 @@ from time import time
 from typing import Protocol, TypeVar, cast
 
 from python_crimes import pipe
-from sqlite_callback_store import SQLiteStore, StorageError, StoreOptions, Transaction, TursoStore
+from sqlite_callback_store import StorageError, StoreOptions, Transaction, TursoStore
 from typed_errs import Diagnostic, Err, Ok, Result, Some, catch_bubble
 
+from pacman.highscores.migrations import apply_migrations
 from pacman.models import HighscoreEntry
 
 
@@ -52,78 +53,7 @@ def HighscoreErr(
     )
 
 
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS highscores (
-    id INTEGER PRIMARY KEY,
-    name TEXT NOT NULL,
-    score INTEGER NOT NULL CHECK (score >= 0)
-);
-
-CREATE TABLE IF NOT EXISTS highscore_migration (
-    name TEXT PRIMARY KEY
-);
-
-CREATE TABLE IF NOT EXISTS player (
-    id INTEGER PRIMARY KEY,
-    name TEXT NOT NULL COLLATE NOCASE UNIQUE,
-    CHECK (length(name) BETWEEN 1 AND 10)
-);
-
-CREATE TABLE IF NOT EXISTS game (
-    id INTEGER PRIMARY KEY,
-    player_id INTEGER NOT NULL REFERENCES player(id),
-    score INTEGER NOT NULL CHECK (score >= 0),
-    played_at INTEGER NOT NULL
-);
-
-INSERT OR IGNORE INTO player(name)
-SELECT DISTINCT name FROM highscores
-WHERE NOT EXISTS (
-    SELECT 1 FROM highscore_migration WHERE name = 'legacy-highscores-v1'
-);
-
-INSERT INTO game(player_id, score, played_at)
-SELECT player.id, highscores.score, 0
-FROM highscores JOIN player ON player.name = highscores.name
-WHERE NOT EXISTS (
-    SELECT 1 FROM highscore_migration WHERE name = 'legacy-highscores-v1'
-);
-
-INSERT OR IGNORE INTO highscore_migration(name) VALUES ('legacy-highscores-v1');
-DROP TABLE highscores;
-
-CREATE INDEX IF NOT EXISTS game_global_score_idx
-ON game(score DESC, id ASC);
-CREATE INDEX IF NOT EXISTS game_player_score_idx
-ON game(player_id, score DESC, id ASC);
-
-DROP VIEW IF EXISTS global_highscores;
-CREATE VIEW global_highscores AS
-SELECT
-    game.id AS game_id,
-    player.id AS player_id,
-    player.name AS name,
-    game.score AS score,
-    game.played_at AS played_at
-FROM game JOIN player ON player.id = game.player_id;
-
-DROP VIEW IF EXISTS player_highscores;
-CREATE VIEW player_highscores AS
-SELECT
-    game.id AS game_id,
-    player.id AS player_id,
-    player.name AS name,
-    game.score AS score,
-    game.played_at AS played_at,
-    ROW_NUMBER() OVER (
-        PARTITION BY player.id ORDER BY game.score DESC, game.id ASC
-    ) AS player_rank
-FROM game JOIN player ON player.id = game.player_id;
-"""
-
-INSERT_PLAYER = "INSERT INTO player(name) VALUES (?) ON CONFLICT(name) DO NOTHING"
-SELECT_PLAYER_ID = "SELECT id FROM player WHERE name = ? COLLATE NOCASE"
-INSERT_GAME = "INSERT INTO game(player_id, score, played_at) VALUES (?, ?, ?)"
+SQL_PARAMETER_BATCH = 1_000
 SELECT_GLOBAL = """
 SELECT name, score FROM global_highscores
 ORDER BY score DESC, game_id ASC
@@ -170,7 +100,7 @@ class _HighscoreOperations:
             Success or a diagnosed storage failure.
         """
         _ = (
-            self._store.initialize(SCHEMA)
+            apply_migrations(self._store)
             .map_err_with(_storage_err.with_(operation="initialize the highscore database"))
             .q
         )
@@ -243,28 +173,48 @@ class _HighscoreOperations:
         played_at = int(time())
 
         def insert(transaction: Transaction) -> Result[None, StorageError]:
-            players: dict[str, int] = {}
-            game_rows: list[tuple[int, int, int]] = []
-            for entry in validated:
-                player_key = entry.name.casefold()
-                player_id = players.get(player_key)
-                if player_id is None:
-                    _ = transaction.connection.execute(INSERT_PLAYER, (entry.name,))
-                    row = cast(
-                        "sqlite3.Row | tuple[int] | None",
-                        transaction.connection.execute(SELECT_PLAYER_ID, (entry.name,)).fetchone(),
-                    )
-                    if row is None:
-                        return Err(
-                            StorageError.OPERATION_FAILED,
-                            namespace="highscores::store",
-                            context_msg="Player insert returned no identifier",
-                        )
-                    player_id = cast(int, row[0])
-                    players[player_key] = player_id
-                game_rows.append((player_id, entry.score, played_at))
+            names = tuple(dict((entry.name.casefold(), entry.name) for entry in validated).values())
+            for name_batch in _batches(names, SQL_PARAMETER_BATCH):
+                placeholders = ", ".join("(?)" for _ in name_batch)
+                _ = transaction.connection.execute(
+                    f"INSERT INTO player(name) VALUES {placeholders} "
+                    "ON CONFLICT(name) DO NOTHING",
+                    name_batch,
+                )
 
-            _ = transaction.connection.executemany(INSERT_GAME, game_rows)
+            players: dict[str, int] = {}
+            for name_batch in _batches(names, SQL_PARAMETER_BATCH):
+                placeholders = ", ".join("?" for _ in name_batch)
+                rows = cast(
+                    "list[sqlite3.Row]",
+                    transaction.connection.execute(
+                        f"SELECT id, name FROM player WHERE name IN ({placeholders})",
+                        name_batch,
+                    ).fetchall(),
+                )
+                players.update(
+                    (cast(str, row["name"]).casefold(), cast(int, row["id"]))
+                    for row in rows
+                )
+
+            if len(players) != len(names):
+                return Err(
+                    StorageError.OPERATION_FAILED,
+                    namespace="highscores::store",
+                    context_msg="Could not resolve every attributed player",
+                )
+
+            game_rows = tuple(
+                (players[entry.name.casefold()], entry.score, played_at)
+                for entry in validated
+            )
+            for game_batch in _batches(game_rows, SQL_PARAMETER_BATCH):
+                placeholders = ", ".join("(?, ?, ?)" for _ in game_batch)
+                parameters = tuple(value for row in game_batch for value in row)
+                _ = transaction.connection.execute(
+                    f"INSERT INTO game(player_id, score, played_at) VALUES {placeholders}",
+                    parameters,
+                )
             return Ok(None)
 
         _ = (
@@ -327,19 +277,6 @@ class HighscoreStore(_HighscoreOperations, TursoStore):
         )
 
 
-class SQLiteHighscoreStore(_HighscoreOperations, SQLiteStore):
-    """Explicit CPython SQLite fallback sharing the same schema and API."""
-
-    def __init__(
-        self,
-        db_path: str | Path,
-        *,
-        options: StoreOptions | None = None,
-    ) -> None:
-        """Configure the standard-library SQLite engine."""
-        SQLiteStore.__init__(self, db_path, options=options)
-
-
 def _select_entries(
     connection: sqlite3.Connection,
     query: str,
@@ -362,6 +299,15 @@ def _select_count(
             context_msg="Count query returned no row",
         )
     return Ok(cast(int, row[0]))
+
+
+def _batches(values: tuple[T, ...], size: int) -> tuple[tuple[T, ...], ...]:
+    """Split values into bounded SQL parameter batches.
+
+    Returns:
+        Contiguous batches that preserve input order.
+    """
+    return tuple(values[offset : offset + size] for offset in range(0, len(values), size))
 
 
 @pipe

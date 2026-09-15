@@ -9,7 +9,7 @@ from typing import Protocol, cast
 from typed_errs import Err, Nothing, Ok, Option, Result, Some
 
 from pacman.analyze.models import MazeGraph, Path, PathfindingError
-from pacman.analyze.pathfinding import bfs, pathfinding_err
+from pacman.analyze.pathfinding import bfs, path_from_distances, pathfinding_err
 from pacman.replay.models import TileIndex
 
 
@@ -135,28 +135,4 @@ def shortest_route(
     if isinstance(searched, Err):
         return searched
 
-    field = searched.value
-    destination_distance = field[int(destination)]
-    if destination_distance < 0:
-        return Ok(Nothing())
-
-    reversed_tiles = [destination]
-    current = destination
-    current_distance = destination_distance
-    while current != origin:
-        previous = next(
-            (
-                move.destination
-                for move in graph.neighbors(current)
-                if field[int(move.destination)] == current_distance - 1
-            ),
-            None,
-        )
-        if previous is None:
-            return Ok(Nothing())
-        reversed_tiles.append(previous)
-        current = previous
-        current_distance -= 1
-
-    reversed_tiles.reverse()
-    return Ok(Some(Path(tuple(reversed_tiles))))
+    return Ok(path_from_distances(graph, origin, destination, searched.value))

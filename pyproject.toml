@@ -32,6 +32,9 @@ build-backend = "setuptools.build_meta"
 include = ["pacman*"]
 exclude = ["tests*"]
 
+[tool.setuptools.package-data]
+"pacman.highscores.migrations" = ["*.sql"]
+
 [tool.mypy]
 python_version = "3.10"
 warn_return_any = true

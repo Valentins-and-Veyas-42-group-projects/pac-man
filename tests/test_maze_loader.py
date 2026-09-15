@@ -3,7 +3,7 @@
 import pytest
 from pacman.analyze.distance_backend import DistanceBackendKind, _accelerated_backend
 from pacman.analyze.models import MazeGraph
-from pacman.maze_loader import Maze, MazeError, load_maze
+from pacman.maze_loader import Maze, MazeError, Solver, load_maze
 from pacman.replay.models import TileIndex
 from typed_errs import Err, Nothing, Option, Some
 
@@ -43,7 +43,14 @@ def test_maze_paths_use_the_shared_distance_router(monkeypatch: pytest.MonkeyPat
     path = maze.path(maze.entry, maze.exit).unwrap()
 
     assert path == [(0, 0), (1, 0), (2, 0)]
-    assert backend.calls >= 1
+    assert backend.calls == 1
+
+
+def test_legacy_solver_argument_routes_through_the_shared_backend() -> None:
+    maze = Maze(cells=[[13, 5, 7]], entry=(0, 0), exit=(2, 0))
+
+    assert maze.path(maze.entry, maze.exit, Solver.BFS).unwrap() == [(0, 0), (1, 0), (2, 0)]
+    assert maze.path(maze.entry, maze.exit, Solver.DFS).unwrap() == [(0, 0), (1, 0), (2, 0)]
     _accelerated_backend.cache_clear()
 
 
