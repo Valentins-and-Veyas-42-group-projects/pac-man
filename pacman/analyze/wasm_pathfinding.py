@@ -7,6 +7,7 @@ from typing import Protocol, cast
 
 from typed_errs import Nothing, Option, Some
 
+from pacman.analyze.distance_backend import AcceleratedThreatAnalysis, GhostOriginLike
 from pacman.analyze.models import MazeGraph
 from pacman.replay.models import TileIndex
 
@@ -22,6 +23,14 @@ class WasmDistances(Protocol):
     def __iter__(self) -> Iterator[int]:
         """Iterate over returned distances."""
         ...
+
+
+class WasmThreatAnalysis(Protocol):
+    """Combined result returned through Python/JavaScript interop."""
+
+    playerDistances: WasmDistances  # noqa: N815
+    threatEtas: WasmDistances  # noqa: N815
+    threatOwnerMasks: WasmDistances  # noqa: N815
 
 
 class WasmBridge(Protocol):
@@ -51,6 +60,16 @@ class WasmBridge(Protocol):
         self, topology: int, tile_count: int, origin: int
     ) -> WasmDistances | None:
         """Search through a reusable topology handle."""
+        ...
+
+    def topologyAnalyzeDistances(  # noqa: N802
+        self,
+        topology: int,
+        tile_count: int,
+        player_origin: int,
+        ghosts: list[int],
+    ) -> WasmThreatAnalysis | None:
+        """Compute player and dangerous-ghost fields together."""
         ...
 
 
@@ -105,18 +124,10 @@ class WasmPathfinding:
     def distances(self, graph: MazeGraph, origin: TileIndex) -> Option[tuple[int, ...]]:
         """Return cached-topology WASM distances, or Nothing on failure."""
         try:
-            cached = self._topologies.get(id(graph))
-            if cached is None or cached[0] is not graph:
-                encoded = self._encode(graph)
-                if isinstance(encoded, Nothing):
-                    return Nothing()
-                topology = int(self._bridge.createTopology(encoded.value, len(graph.moves), graph.width))
-                if topology == 0:
-                    return Nothing()
-                self._topologies[id(graph)] = (graph, topology)
-            else:
-                topology = cached[1]
-            result = self._bridge.topologyBfsDistances(topology, len(graph.moves), int(origin))
+            topology = self._topology_for(graph)
+            if isinstance(topology, Nothing):
+                return Nothing()
+            result = self._bridge.topologyBfsDistances(topology.value, len(graph.moves), int(origin))
             if result is None:
                 return Nothing()
             values = tuple(int(value) for value in result)
@@ -125,6 +136,58 @@ class WasmPathfinding:
             return Some(values)
         except Exception:
             return Nothing()
+
+    def analyze_distances(
+        self,
+        graph: MazeGraph,
+        player_origin: TileIndex,
+        ghosts: tuple[GhostOriginLike, ...],
+    ) -> Option[AcceleratedThreatAnalysis]:
+        """Return combined cached-topology analysis, or Nothing on failure."""
+        try:
+            topology = self._topology_for(graph)
+            if isinstance(topology, Nothing):
+                return Nothing()
+            encoded: list[int] = []
+            for ghost in ghosts:
+                tile = int(ghost.tile)
+                encoded.extend((tile & 0xFF, tile >> 8, int(ghost.ghost), int(ghost.dangerous)))
+            result = self._bridge.topologyAnalyzeDistances(
+                topology.value, len(graph.moves), int(player_origin), encoded
+            )
+            if result is None:
+                return Nothing()
+            analysis = AcceleratedThreatAnalysis(
+                player_distances=tuple(int(value) for value in result.playerDistances),
+                threat_etas=tuple(int(value) for value in result.threatEtas),
+                threat_owner_masks=tuple(int(value) for value in result.threatOwnerMasks),
+            )
+            if not all(
+                len(values) == len(graph.moves)
+                for values in (
+                    analysis.player_distances,
+                    analysis.threat_etas,
+                    analysis.threat_owner_masks,
+                )
+            ):
+                return Nothing()
+            return Some(analysis)
+        except Exception:
+            return Nothing()
+
+    def _topology_for(self, graph: MazeGraph) -> Option[int]:
+        """Return a cached WASM topology, constructing it once."""
+        cached = self._topologies.get(id(graph))
+        if cached is not None and cached[0] is graph:
+            return Some(cached[1])
+        encoded = self._encode(graph)
+        if isinstance(encoded, Nothing):
+            return Nothing()
+        topology = int(self._bridge.createTopology(encoded.value, len(graph.moves), graph.width))
+        if topology == 0:
+            return Nothing()
+        self._topologies[id(graph)] = (graph, topology)
+        return Some(topology)
 
     def close(self) -> None:
         """Release every cached WASM topology."""

@@ -24,5 +24,13 @@ const topology = engine.createTopology(graph, 3, 3);
 assert.notEqual(topology, 0);
 assert.deepEqual(engine.topologyBfsDistances(topology, 3, 0), [0, 1, 2]);
 assert.deepEqual(engine.topologyBfsDistances(topology, 3, 2), [2, 1, 0]);
+assert.deepEqual(
+    engine.topologyAnalyzeDistances(topology, 3, 1, [0, 0, 0, 1, 2, 0, 1, 1]),
+    {
+        playerDistances: [1, 0, 1],
+        threatEtas: [0, 1, 0],
+        threatOwnerMasks: [1, 3, 2],
+    },
+);
 engine.destroyTopology(topology);
-console.log("Browser bridge: WASM BFS returned [0, 1, 2]");
+console.log("Browser bridge: WASM BFS and threat analysis passed");

@@ -7,7 +7,7 @@ its interface (not the other way around), with `PERFECT` forced to
 Swap in the actual import once a package is assigned for peer review.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum, IntFlag, auto
 from typing import cast
 
@@ -130,6 +130,7 @@ class Maze:
     cells: list[list[int]]
     entry: Position
     exit: Position
+    _graph_cache: MazeGraph | None = field(default=None, init=False, repr=False, compare=False)
 
     @property
     def width(self) -> int:
@@ -240,12 +241,7 @@ class Maze:
         if isinstance(routed, Err) or isinstance(routed.value, Nothing):
             return Nothing()
 
-        return Some(
-            [
-                (int(tile) % self.width, int(tile) // self.width)
-                for tile in routed.value.value.tiles
-            ]
-        )
+        return Some([(int(tile) % self.width, int(tile) // self.width) for tile in routed.value.value.tiles])
 
     def _graph(self) -> MazeGraph:
         """Adapt generator wall masks to the shared immutable graph.
@@ -253,6 +249,9 @@ class Maze:
         Returns:
             An immutable graph accepted by every routed backend.
         """
+        if self._graph_cache is not None:
+            return self._graph_cache
+
         directions = (
             ((0, -1), Direction.UP),
             ((1, 0), Direction.RIGHT),
@@ -272,7 +271,8 @@ class Maze:
                         if self.can_move(x, y, dx, dy)
                     )
                 )
-        return MazeGraph(width=self.width, height=self.height, moves=tuple(moves))
+        self._graph_cache = MazeGraph(width=self.width, height=self.height, moves=tuple(moves))
+        return self._graph_cache
 
 
 def load_maze(

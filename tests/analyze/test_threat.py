@@ -1,4 +1,7 @@
+from pacman.analyze.distance_backend import AcceleratedThreatAnalysis
 from pacman.analyze.models import MazeGraph, Move
+from pacman.analyze.native_pathfinding import load_native_pathfinding
+from pacman.analyze.pathfinding import bfs
 from pacman.analyze.state import GhostDistance
 from pacman.analyze.threat import (
     NO_THREAT,
@@ -65,3 +68,46 @@ def test_threat_field_rejects_invalid_dangerous_ghost_tile() -> None:
 
     assert isinstance(result, Err)
     assert result.error is ThreatError.INVALID_GHOST_TILE
+
+
+def test_native_analysis_matches_python_distances_and_threats() -> None:
+    graph = corridor_graph()
+    ghosts = (
+        GhostDistance(Ghost.BLINKY, TileIndex(0), 2, True),
+        GhostDistance(Ghost.PINKY, TileIndex(4), 2, True),
+        GhostDistance(Ghost.INKY, TileIndex(2), 0, False),
+    )
+    backend = load_native_pathfinding().unwrap()
+
+    try:
+        native = backend.analyze_distances(graph, TileIndex(2), ghosts).unwrap()
+    finally:
+        backend.close()
+
+    python_threat = build_threat_field(graph, ghosts).unwrap()
+    expected_owner_masks = tuple(sum(1 << int(ghost) for ghost in owners) for owners in python_threat.ghosts)
+    assert native.player_distances == bfs(graph, TileIndex(2)).unwrap().distances
+    assert native.threat_etas == python_threat.etas
+    assert native.threat_owner_masks == expected_owner_masks
+
+
+def test_threat_field_uses_accelerated_analysis(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "pacman.analyze.threat.accelerated_threat_analysis",
+        lambda graph, origin, ghosts: Some(
+            AcceleratedThreatAnalysis(
+                player_distances=(0,) * len(graph.moves),
+                threat_etas=(0, 1, 2, 1, 0),
+                threat_owner_masks=(1, 1, 3, 2, 2),
+            )
+        ),
+    )
+    ghosts = (
+        GhostDistance(Ghost.BLINKY, TileIndex(0), 2, True),
+        GhostDistance(Ghost.PINKY, TileIndex(4), 2, True),
+    )
+
+    threat = build_threat_field(corridor_graph(), ghosts).unwrap()
+
+    assert threat.etas == (0, 1, 2, 1, 0)
+    assert threat.owners(TileIndex(2)) == (Ghost.BLINKY, Ghost.PINKY)

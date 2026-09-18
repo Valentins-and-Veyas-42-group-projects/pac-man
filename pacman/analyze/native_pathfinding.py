@@ -10,6 +10,7 @@ from pathlib import Path
 
 from typed_errs import Nothing, Option, Some
 
+from pacman.analyze.distance_backend import AcceleratedThreatAnalysis, GhostOriginLike
 from pacman.analyze.models import MazeGraph
 from pacman.replay.models import TileIndex
 
@@ -35,6 +36,16 @@ class PacTileNeighbors(ctypes.Structure):
         ("moves", PacMove * 4),
         ("count", ctypes.c_uint8),
         ("reserved", ctypes.c_uint8),
+    ]
+
+
+class PacGhostOrigin(ctypes.Structure):
+    """C representation of one ghost used by threat analysis."""
+
+    _fields_ = [
+        ("tile", ctypes.c_uint16),
+        ("ghost", ctypes.c_uint8),
+        ("dangerous", ctypes.c_uint8),
     ]
 
 
@@ -99,6 +110,18 @@ class NativePathfinding:
             ctypes.c_size_t,
         ]
         library.pac_topology_bfs_many.restype = ctypes.c_int
+        library.pac_topology_analyze_distances.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_uint16,
+            ctypes.POINTER(PacGhostOrigin),
+            ctypes.c_size_t,
+            ctypes.POINTER(ctypes.c_uint32),
+            ctypes.c_size_t,
+            ctypes.POINTER(ctypes.c_uint32),
+            ctypes.POINTER(ctypes.c_uint8),
+            ctypes.c_size_t,
+        ]
+        library.pac_topology_analyze_distances.restype = ctypes.c_int
         self._topologies: dict[int, tuple[MazeGraph, ctypes.c_void_p]] = {}
 
     @staticmethod
@@ -233,6 +256,51 @@ class NativePathfinding:
             return Some(
                 tuple(
                     self._decode(output[index * tile_count : (index + 1) * tile_count]) for index in range(len(origins))
+                )
+            )
+        except Exception:
+            return Nothing()
+
+    def analyze_distances(
+        self,
+        graph: MazeGraph,
+        player_origin: TileIndex,
+        ghosts: tuple[GhostOriginLike, ...],
+    ) -> Option[AcceleratedThreatAnalysis]:
+        """Compute player and dangerous-ghost distance data together.
+
+        Returns:
+            Combined native results, or Nothing when native execution fails.
+        """
+        try:
+            topology = self._topology_for(graph)
+            if isinstance(topology, Nothing):
+                return Nothing()
+            tile_count = len(graph.moves)
+            encoded_ghosts = (PacGhostOrigin * len(ghosts))(
+                *(PacGhostOrigin(int(ghost.tile), int(ghost.ghost), int(ghost.dangerous)) for ghost in ghosts)
+            )
+            player_distances = (ctypes.c_uint32 * tile_count)()
+            threat_etas = (ctypes.c_uint32 * tile_count)()
+            threat_owners = (ctypes.c_uint8 * tile_count)()
+            status = self._library.pac_topology_analyze_distances(
+                topology.value,
+                int(player_origin),
+                encoded_ghosts,
+                len(ghosts),
+                player_distances,
+                tile_count,
+                threat_etas,
+                threat_owners,
+                tile_count,
+            )
+            if status != PAC_OK:
+                return Nothing()
+            return Some(
+                AcceleratedThreatAnalysis(
+                    player_distances=self._decode(player_distances),
+                    threat_etas=self._decode(threat_etas),
+                    threat_owner_masks=tuple(int(owner) for owner in threat_owners),
                 )
             )
         except Exception:

@@ -42,6 +42,12 @@ typedef struct pac_tile_neighbors {
     uint8_t reserved;
 } pac_tile_neighbors;
 
+typedef struct pac_ghost_origin {
+    uint16_t tile;
+    uint8_t ghost;
+    uint8_t dangerous;
+} pac_ghost_origin;
+
 typedef struct pac_topology pac_topology;
 
 /* Return the supported stable C ABI version. */
@@ -90,6 +96,13 @@ PAC_API pac_status pac_topology_bfs_many(pac_topology *topology,
                                          size_t origin_count,
                                          uint32_t *distance_fields,
                                          size_t distance_capacity);
+
+/* Compute player distances and the earliest dangerous-ghost arrivals. */
+PAC_API pac_status pac_topology_analyze_distances(
+    pac_topology *topology, uint16_t player_origin,
+    const pac_ghost_origin *ghosts, size_t ghost_count,
+    uint32_t *player_distances, size_t player_distance_capacity,
+    uint32_t *threat_eta, uint8_t *threat_owners, size_t threat_capacity);
 
 /* One-shot graph-walking BFS retained for measured comparisons. */
 PAC_API pac_status pac_bfs_distances_graph(const pac_tile_neighbors *tiles,

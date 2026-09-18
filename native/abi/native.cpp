@@ -1,6 +1,7 @@
 #include "pacman/native.h"
 #include "pacman/macros.h"
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
@@ -12,6 +13,7 @@ import pacman.bitboard;
 import pacman.bfs;
 import pacman.graph;
 import pacman.topology;
+import pacman.threat;
 import pacman.types;
 
 enum class pac_bfs_kernel : std::uint8_t {
@@ -25,6 +27,7 @@ struct pac_topology {
     std::unique_ptr<pacman::bitboard_word[]> masks{};
     std::unique_ptr<pacman::topology_edge[]> exceptional_edges{};
     std::unique_ptr<pacman::bitboard_word[]> workspace{};
+    std::unique_ptr<pacman::path_distance[]> threat_distances{};
     pacman::topology_masks topology{};
     pac_bfs_kernel bfs_kernel{pac_bfs_kernel::masked};
 };
@@ -163,8 +166,10 @@ cfn PAC_API pac_topology_create(const pac_tile_neighbors *tiles,
                                        pacman::topology_edge[tile_count * 4]{});
     owned->workspace.reset(new (std::nothrow)
                                pacman::bitboard_word[words * 4]{});
+    owned->threat_distances.reset(new (std::nothrow)
+                                      pacman::path_distance[tile_count * 4]{});
     if (owned->masks == nullptr || owned->exceptional_edges == nullptr ||
-        owned->workspace == nullptr) {
+        owned->workspace == nullptr || owned->threat_distances == nullptr) {
         return PAC_INTERNAL_ERROR;
     }
 
@@ -258,6 +263,70 @@ cfn PAC_API pac_topology_bfs_many(
         }
     }
     return PAC_OK;
+}
+
+cfn PAC_API pac_topology_analyze_distances(
+    pac_topology *topology, const uint16_t player_origin,
+    const pac_ghost_origin *ghosts, const size_t ghost_count,
+    uint32_t *player_distances, const size_t player_distance_capacity,
+    uint32_t *threat_eta, uint8_t *threat_owners, const size_t threat_capacity)
+    -> pac_status {
+    constexpr size_t ghost_capacity = 4;
+    const let player_status = validate_topology_search(
+        topology, player_origin, player_distances, player_distance_capacity);
+    if (player_status != PAC_OK) {
+        return player_status;
+    }
+    if (ghost_count > ghost_capacity ||
+        (ghost_count != 0 && ghosts == nullptr) || threat_eta == nullptr ||
+        threat_owners == nullptr) {
+        return PAC_INVALID_ARGUMENT;
+    }
+    if (threat_capacity < topology->tile_count) {
+        return PAC_BUFFER_TOO_SMALL;
+    }
+
+    std::array<pacman::ghost_origin, ghost_capacity> origins{};
+    for (size_t index = 0; index < ghost_count; ++index) {
+        const let &ghost = ghosts[index];
+        if (static_cast<size_t>(ghost.tile) >= topology->tile_count ||
+            ghost.ghost >= ghost_capacity || ghost.dangerous > 1) {
+            return PAC_INVALID_ARGUMENT;
+        }
+        origins[index] = {
+            .tile = ghost.tile,
+            .ghost = ghost.ghost,
+            .dangerous = ghost.dangerous != 0,
+        };
+    }
+
+    const let status = topology_bfs(*topology, player_origin,
+                                    {player_distances, topology->tile_count});
+    if (status != PAC_OK) {
+        return status;
+    }
+    for (size_t index = 0; index < ghost_count; ++index) {
+        if (!origins[index].dangerous) {
+            continue;
+        }
+        const let ghost_status = topology_bfs(
+            *topology, origins[index].tile,
+            {topology->threat_distances.get() + index * topology->tile_count,
+             topology->tile_count});
+        if (ghost_status != PAC_OK) {
+            return ghost_status;
+        }
+    }
+
+    return pacman::combine_threat_distances(
+               {origins.data(), ghost_count},
+               {topology->threat_distances.get(),
+                ghost_count * topology->tile_count},
+               topology->tile_count,
+               {.eta = {threat_eta, topology->tile_count},
+                .owners = {threat_owners, topology->tile_count}})
+               ? PAC_OK
+               : PAC_INTERNAL_ERROR;
 }
 
 cfn PAC_API pac_bfs_distances_graph(const pac_tile_neighbors *tiles,

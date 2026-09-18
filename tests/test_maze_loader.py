@@ -23,6 +23,7 @@ def test_maze_paths_use_the_shared_distance_router(monkeypatch: pytest.MonkeyPat
 
     class RecordingBackend:
         calls = 0
+        graph: MazeGraph | None = None
 
         def distances(
             self,
@@ -30,6 +31,10 @@ def test_maze_paths_use_the_shared_distance_router(monkeypatch: pytest.MonkeyPat
             origin: TileIndex,
         ) -> Option[tuple[int, ...]]:
             assert graph.contains(origin)
+            if self.graph is None:
+                self.graph = graph
+            else:
+                assert graph is self.graph
             self.calls += 1
             return Some(tuple(range(len(graph.moves))))
 
@@ -41,9 +46,11 @@ def test_maze_paths_use_the_shared_distance_router(monkeypatch: pytest.MonkeyPat
 
     maze = Maze(cells=[[13, 5, 7]], entry=(0, 0), exit=(2, 0))
     path = maze.path(maze.entry, maze.exit).unwrap()
+    second_path = maze.path(maze.entry, maze.exit).unwrap()
 
     assert path == [(0, 0), (1, 0), (2, 0)]
-    assert backend.calls == 1
+    assert second_path == path
+    assert backend.calls == 2
 
 
 def test_legacy_solver_argument_routes_through_the_shared_backend() -> None:

@@ -2,15 +2,44 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from enum import Enum
 from functools import lru_cache
-from typing import Protocol, cast
+from typing import Protocol, cast, runtime_checkable
 
 from typed_errs import Err, Nothing, Ok, Option, Result, Some
 
 from pacman.analyze.models import MazeGraph, Path, PathfindingError
 from pacman.analyze.pathfinding import bfs, path_from_distances, pathfinding_err
-from pacman.replay.models import TileIndex
+from pacman.replay.models import Ghost, TileIndex
+
+
+class GhostOriginLike(Protocol):
+    """Ghost fields required by accelerated threat analysis."""
+
+    @property
+    def ghost(self) -> Ghost:
+        """Ghost identity."""
+        ...
+
+    @property
+    def tile(self) -> TileIndex:
+        """Current tile."""
+        ...
+
+    @property
+    def dangerous(self) -> bool:
+        """Whether this ghost contributes to danger."""
+        ...
+
+
+@dataclass(frozen=True, slots=True)
+class AcceleratedThreatAnalysis:
+    """Distance data returned by a native or WASM engine."""
+
+    player_distances: tuple[int, ...]
+    threat_etas: tuple[int, ...]
+    threat_owner_masks: tuple[int, ...]
 
 
 class DistanceBackend(Protocol):
@@ -22,6 +51,20 @@ class DistanceBackend(Protocol):
         origin: TileIndex,
     ) -> Option[tuple[int, ...]]:
         """Return distances when this backend can complete the search."""
+        ...
+
+
+@runtime_checkable
+class ThreatBackend(Protocol):
+    """Optional coarse threat operation implemented by accelerators."""
+
+    def analyze_distances(
+        self,
+        graph: MazeGraph,
+        player_origin: TileIndex,
+        ghosts: tuple[GhostOriginLike, ...],
+    ) -> Option[AcceleratedThreatAnalysis]:
+        """Return combined player and ghost distances when supported."""
         ...
 
 
@@ -106,6 +149,22 @@ def distances(
         return pathfinding_err(reference.error)
 
     return Ok(reference.value.distances)
+
+
+def accelerated_threat_analysis(
+    graph: MazeGraph,
+    player_origin: TileIndex,
+    ghosts: tuple[GhostOriginLike, ...],
+) -> Option[AcceleratedThreatAnalysis]:
+    """Run coarse threat analysis when the selected backend supports it.
+
+    Returns:
+        Accelerated results, or Nothing when the operation is unavailable.
+    """
+    _, backend = _accelerated_backend()
+    if isinstance(backend, Some) and isinstance(backend.value, ThreatBackend):
+        return backend.value.analyze_distances(graph, player_origin, ghosts)
+    return Nothing()
 
 
 def shortest_route(

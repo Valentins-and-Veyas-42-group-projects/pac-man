@@ -96,12 +96,59 @@ function topologyBfsDistances(topology, tileCount, origin) {
     }
 }
 
+function topologyAnalyzeDistances(topology, tileCount, playerOrigin, ghosts) {
+    const ghostPointer = module._malloc(ghosts.length);
+    const distanceSize = tileCount * Uint32Array.BYTES_PER_ELEMENT;
+    const playerPointer = module._malloc(distanceSize);
+    const etaPointer = module._malloc(distanceSize);
+    const ownersPointer = module._malloc(tileCount);
+    if ((ghosts.length !== 0 && ghostPointer === 0) || playerPointer === 0 || etaPointer === 0 || ownersPointer === 0) {
+        module._free(ghostPointer);
+        module._free(playerPointer);
+        module._free(etaPointer);
+        module._free(ownersPointer);
+        return null;
+    }
+    try {
+        module.HEAPU8.set(ghosts, ghostPointer);
+        const status = module._pac_topology_analyze_distances(
+            topology,
+            playerOrigin,
+            ghostPointer,
+            ghosts.length / 4,
+            playerPointer,
+            tileCount,
+            etaPointer,
+            ownersPointer,
+            tileCount,
+        );
+        if (status !== 0) {
+            return null;
+        }
+        const decodeDistances = (pointer) => Array.from(
+            module.HEAPU32.subarray(pointer / 4, pointer / 4 + tileCount),
+            (distance) => (distance === UNREACHABLE ? -1 : distance),
+        );
+        return {
+            playerDistances: decodeDistances(playerPointer),
+            threatEtas: decodeDistances(etaPointer),
+            threatOwnerMasks: Array.from(module.HEAPU8.subarray(ownersPointer, ownersPointer + tileCount)),
+        };
+    } finally {
+        module._free(ownersPointer);
+        module._free(etaPointer);
+        module._free(playerPointer);
+        module._free(ghostPointer);
+    }
+}
+
 globalThis.pacmanWasm = Object.freeze({
     abiVersion: () => module._pac_abi_version(),
     bfsDistances,
     createTopology,
     destroyTopology: (topology) => module._pac_topology_destroy(topology),
     topologyBfsDistances,
+    topologyAnalyzeDistances,
 });
 
 export default globalThis.pacmanWasm;
