@@ -1,3 +1,6 @@
+from concurrent.futures import ThreadPoolExecutor
+from typing import cast
+
 from pacman.analyze.distance_backend import distances, shortest_route
 from pacman.analyze.maze_graph import build_maze_graph
 from pacman.analyze.models import (
@@ -7,7 +10,7 @@ from pacman.analyze.models import (
 )
 from pacman.analyze.native_pathfinding import load_native_pathfinding
 from pacman.analyze.pathfinding import bfs, distance_to, path_from_distances, shortest_path
-from pacman.analyze.wasm_pathfinding import WasmPathfinding
+from pacman.analyze.wasm_pathfinding import WasmBridge, WasmPathfinding
 from pacman.replay.maze_codec import encode_topology
 from pacman.replay.models import (
     Direction,
@@ -64,6 +67,21 @@ def test_native_batch_matches_individual_python_searches() -> None:
     backend.value.close()
 
 
+def test_native_cached_topology_supports_concurrent_searches() -> None:
+    backend = load_native_pathfinding()
+    if isinstance(backend, Nothing):
+        return
+    graph = branching_graph()
+    origins = (TileIndex(0), TileIndex(2), TileIndex(4)) * 16
+
+    with ThreadPoolExecutor(max_workers=8) as workers:
+        actual = tuple(workers.map(lambda origin: backend.value.distances(graph, origin).unwrap(), origins))
+
+    expected = tuple(bfs(graph, origin).unwrap().distances for origin in origins)
+    assert actual == expected
+    backend.value.close()
+
+
 def test_wasm_bridge_backend_matches_python_bfs() -> None:
     class TestBridge:
         created = 0
@@ -91,7 +109,7 @@ def test_wasm_bridge_backend_matches_python_bfs() -> None:
             return [0, 1, 2, -1, 2, -1]
 
     bridge = TestBridge()
-    backend = WasmPathfinding(bridge)
+    backend = WasmPathfinding(cast(WasmBridge, bridge))
     graph = branching_graph()
 
     assert backend.distances(graph, TileIndex(0)) == Some((0, 1, 2, -1, 2, -1))

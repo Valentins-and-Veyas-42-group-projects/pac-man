@@ -71,8 +71,7 @@ PAC_API pac_status pac_topology_create(const pac_tile_neighbors *tiles,
 /* Release a topology created by pac_topology_create. Accepts NULL. */
 PAC_API void pac_topology_destroy(pac_topology *topology);
 
-/* Compute distances using a reusable topology. Not safe for concurrent calls.
- */
+/* Compute distances using a reusable topology. Calls are synchronized. */
 PAC_API pac_status pac_topology_bfs_distances(pac_topology *topology,
                                               uint16_t origin,
                                               uint32_t *distances,
@@ -102,6 +101,11 @@ PAC_API pac_status pac_topology_analyze_distances(
     pac_topology *topology, uint16_t player_origin,
     const pac_ghost_origin *ghosts, size_t ghost_count,
     uint32_t *player_distances, size_t player_distance_capacity,
+    uint32_t *threat_eta, uint8_t *threat_owners, size_t threat_capacity);
+
+/* Compute only the earliest dangerous-ghost arrivals. */
+PAC_API pac_status pac_topology_threat_field(
+    pac_topology *topology, const pac_ghost_origin *ghosts, size_t ghost_count,
     uint32_t *threat_eta, uint8_t *threat_owners, size_t threat_capacity);
 
 /* One-shot graph-walking BFS retained for measured comparisons. */

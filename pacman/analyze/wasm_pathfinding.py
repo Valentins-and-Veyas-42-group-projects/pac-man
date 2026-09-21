@@ -7,7 +7,11 @@ from typing import Protocol, cast
 
 from typed_errs import Nothing, Option, Some
 
-from pacman.analyze.distance_backend import AcceleratedThreatAnalysis, GhostOriginLike
+from pacman.analyze.distance_backend import (
+    AcceleratedThreatAnalysis,
+    AcceleratedThreatField,
+    GhostOriginLike,
+)
 from pacman.analyze.models import MazeGraph
 from pacman.replay.models import TileIndex
 
@@ -31,6 +35,13 @@ class WasmThreatAnalysis(Protocol):
     playerDistances: WasmDistances  # noqa: N815
     threatEtas: WasmDistances  # noqa: N815
     threatOwnerMasks: WasmDistances  # noqa: N815
+
+
+class WasmThreatField(Protocol):
+    """Threat-only result returned through Python/JavaScript interop."""
+
+    etas: WasmDistances
+    ownerMasks: WasmDistances  # noqa: N815
 
 
 class WasmBridge(Protocol):
@@ -70,6 +81,15 @@ class WasmBridge(Protocol):
         ghosts: list[int],
     ) -> WasmThreatAnalysis | None:
         """Compute player and dangerous-ghost fields together."""
+        ...
+
+    def topologyThreatField(  # noqa: N802
+        self,
+        topology: int,
+        tile_count: int,
+        ghosts: list[int],
+    ) -> WasmThreatField | None:
+        """Compute dangerous-ghost fields without a player search."""
         ...
 
 
@@ -174,6 +194,43 @@ class WasmPathfinding:
             return Some(analysis)
         except Exception:
             return Nothing()
+
+    def threat_field(
+        self,
+        graph: MazeGraph,
+        ghosts: tuple[GhostOriginLike, ...],
+    ) -> Option[AcceleratedThreatField]:
+        """Return dangerous-ghost arrivals without a player search."""
+        try:
+            topology = self._topology_for(graph)
+            if isinstance(topology, Nothing):
+                return Nothing()
+            encoded = self._encode_ghosts(ghosts)
+            result = self._bridge.topologyThreatField(topology.value, len(graph.moves), encoded)
+            if result is None:
+                return Nothing()
+            field = AcceleratedThreatField(
+                etas=tuple(int(value) for value in result.etas),
+                owner_masks=tuple(int(value) for value in result.ownerMasks),
+            )
+            if len(field.etas) != len(graph.moves) or len(field.owner_masks) != len(graph.moves):
+                return Nothing()
+            return Some(field)
+        except Exception:
+            return Nothing()
+
+    @staticmethod
+    def _encode_ghosts(ghosts: tuple[GhostOriginLike, ...]) -> list[int]:
+        """Flatten ghost records to their four-byte C representation.
+
+        Returns:
+            Consecutive bytes matching ``pac_ghost_origin`` records.
+        """
+        encoded: list[int] = []
+        for ghost in ghosts:
+            tile = int(ghost.tile)
+            encoded.extend((tile & 0xFF, tile >> 8, int(ghost.ghost), int(ghost.dangerous)))
+        return encoded
 
     def _topology_for(self, graph: MazeGraph) -> Option[int]:
         """Return a cached WASM topology, constructing it once."""

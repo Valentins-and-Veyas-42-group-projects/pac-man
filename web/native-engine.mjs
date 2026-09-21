@@ -142,6 +142,45 @@ function topologyAnalyzeDistances(topology, tileCount, playerOrigin, ghosts) {
     }
 }
 
+function topologyThreatField(topology, tileCount, ghosts) {
+    const ghostPointer = module._malloc(ghosts.length);
+    const etaPointer = module._malloc(tileCount * Uint32Array.BYTES_PER_ELEMENT);
+    const ownersPointer = module._malloc(tileCount);
+    if ((ghosts.length !== 0 && ghostPointer === 0) || etaPointer === 0 || ownersPointer === 0) {
+        module._free(ghostPointer);
+        module._free(etaPointer);
+        module._free(ownersPointer);
+        return null;
+    }
+    try {
+        module.HEAPU8.set(ghosts, ghostPointer);
+        const status = module._pac_topology_threat_field(
+            topology,
+            ghostPointer,
+            ghosts.length / 4,
+            etaPointer,
+            ownersPointer,
+            tileCount,
+        );
+        if (status !== 0) {
+            return null;
+        }
+        return {
+            etas: Array.from(
+                module.HEAPU32.subarray(etaPointer / 4, etaPointer / 4 + tileCount),
+                (distance) => (distance === UNREACHABLE ? -1 : distance),
+            ),
+            ownerMasks: Array.from(
+                module.HEAPU8.subarray(ownersPointer, ownersPointer + tileCount),
+            ),
+        };
+    } finally {
+        module._free(ownersPointer);
+        module._free(etaPointer);
+        module._free(ghostPointer);
+    }
+}
+
 globalThis.pacmanWasm = Object.freeze({
     abiVersion: () => module._pac_abi_version(),
     bfsDistances,
@@ -149,6 +188,7 @@ globalThis.pacmanWasm = Object.freeze({
     destroyTopology: (topology) => module._pac_topology_destroy(topology),
     topologyBfsDistances,
     topologyAnalyzeDistances,
+    topologyThreatField,
 });
 
 export default globalThis.pacmanWasm;

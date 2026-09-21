@@ -32,5 +32,12 @@ assert.deepEqual(
         threatOwnerMasks: [1, 3, 2],
     },
 );
+assert.deepEqual(
+    engine.topologyThreatField(topology, 3, [0, 0, 0, 1, 2, 0, 1, 1]),
+    {
+        etas: [0, 1, 0],
+        ownerMasks: [1, 3, 2],
+    },
+);
 engine.destroyTopology(topology);
 console.log("Browser bridge: WASM BFS and threat analysis passed");

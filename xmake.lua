@@ -32,7 +32,7 @@ if is_plat("wasm") then
 		"-sEXPORT_ES6=1",
 		"-sEXPORT_NAME=createPacmanNative",
 		"-sALLOW_MEMORY_GROWTH=1",
-		"-sEXPORTED_FUNCTIONS=['_malloc','_free','_pac_abi_version','_pac_bitboard_or','_pac_bfs_distances','_pac_topology_create','_pac_topology_destroy','_pac_topology_bfs_distances','_pac_topology_bfs_distances_graph','_pac_topology_bfs_distances_masked','_pac_topology_bfs_many','_pac_topology_analyze_distances']",
+		"-sEXPORTED_FUNCTIONS=['_malloc','_free','_pac_abi_version','_pac_bitboard_or','_pac_bfs_distances','_pac_topology_create','_pac_topology_destroy','_pac_topology_bfs_distances','_pac_topology_bfs_distances_graph','_pac_topology_bfs_distances_masked','_pac_topology_bfs_many','_pac_topology_analyze_distances','_pac_topology_threat_field']",
 		"-sEXPORTED_RUNTIME_METHODS=['HEAPU8','HEAPU32']",
 		{ force = true }
 	)
@@ -90,6 +90,7 @@ else
 				"pac_topology_bfs_distances_masked",
 				"pac_topology_bfs_many",
 				"pac_topology_analyze_distances",
+				"pac_topology_threat_field",
 			},
 		}
 	)

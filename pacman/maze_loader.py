@@ -123,11 +123,11 @@ def wall_for_direction(direction: Position) -> Wall:
     )
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class Maze:
     """Internal maze representation used by the game."""
 
-    cells: list[list[int]]
+    cells: tuple[tuple[int, ...], ...]
     entry: Position
     exit: Position
     _graph_cache: MazeGraph | None = field(default=None, init=False, repr=False, compare=False)
@@ -271,7 +271,12 @@ class Maze:
                         if self.can_move(x, y, dx, dy)
                     )
                 )
-        self._graph_cache = MazeGraph(width=self.width, height=self.height, moves=tuple(moves))
+        object.__setattr__(
+            self,
+            "_graph_cache",
+            MazeGraph(width=self.width, height=self.height, moves=tuple(moves)),
+        )
+        assert self._graph_cache is not None
         return self._graph_cache
 
 
@@ -375,7 +380,7 @@ def load_maze(
             )
 
         maze = Maze(
-            cells=[row.copy() for row in cells],
+            cells=tuple(tuple(row) for row in cells),
             entry=entry,
             exit=exit_,
         )

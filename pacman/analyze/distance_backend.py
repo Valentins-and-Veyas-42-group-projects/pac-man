@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import atexit
 from dataclasses import dataclass
 from enum import Enum
 from functools import lru_cache
@@ -42,6 +43,14 @@ class AcceleratedThreatAnalysis:
     threat_owner_masks: tuple[int, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class AcceleratedThreatField:
+    """Dangerous-ghost arrival data returned by an accelerator."""
+
+    etas: tuple[int, ...]
+    owner_masks: tuple[int, ...]
+
+
 class DistanceBackend(Protocol):
     """Small contract shared by optional distance implementations."""
 
@@ -67,6 +76,23 @@ class ThreatBackend(Protocol):
         """Return combined player and ghost distances when supported."""
         ...
 
+    def threat_field(
+        self,
+        graph: MazeGraph,
+        ghosts: tuple[GhostOriginLike, ...],
+    ) -> Option[AcceleratedThreatField]:
+        """Return dangerous-ghost arrivals without a player search."""
+        ...
+
+
+@runtime_checkable
+class ClosableBackend(Protocol):
+    """Optional ownership cleanup implemented by loaded accelerators."""
+
+    def close(self) -> None:
+        """Release resources owned by the backend."""
+        ...
+
 
 class DistanceBackendKind(Enum):
     """Available implementations in runtime preference order."""
@@ -76,6 +102,9 @@ class DistanceBackendKind(Enum):
     PYTHON = "python"
 
 
+_backend_for_cleanup: Option[DistanceBackend] = Nothing()
+
+
 @lru_cache(maxsize=1)
 def _accelerated_backend() -> tuple[DistanceBackendKind, Option[DistanceBackend]]:
     """Load the platform accelerator once.
@@ -83,12 +112,16 @@ def _accelerated_backend() -> tuple[DistanceBackendKind, Option[DistanceBackend]
     Returns:
         The loaded backend, or ``Nothing`` when native code is unavailable.
     """
+    global _backend_for_cleanup
+
     try:
         from pacman.analyze.wasm_pathfinding import load_wasm_pathfinding
 
         loaded_wasm = load_wasm_pathfinding()
         if isinstance(loaded_wasm, Some):
-            return DistanceBackendKind.WASM, Some(cast(DistanceBackend, loaded_wasm.value))
+            backend = cast(DistanceBackend, loaded_wasm.value)
+            _backend_for_cleanup = Some(backend)
+            return DistanceBackendKind.WASM, Some(backend)
     except (ImportError, OSError):
         pass
 
@@ -97,7 +130,9 @@ def _accelerated_backend() -> tuple[DistanceBackendKind, Option[DistanceBackend]
 
         loaded = load_native_pathfinding()
         if isinstance(loaded, Some):
-            return DistanceBackendKind.NATIVE, Some(cast(DistanceBackend, loaded.value))
+            backend = cast(DistanceBackend, loaded.value)
+            _backend_for_cleanup = Some(backend)
+            return DistanceBackendKind.NATIVE, Some(backend)
     except (ImportError, OSError):
         pass
     return DistanceBackendKind.PYTHON, Nothing()
@@ -165,6 +200,39 @@ def accelerated_threat_analysis(
     if isinstance(backend, Some) and isinstance(backend.value, ThreatBackend):
         return backend.value.analyze_distances(graph, player_origin, ghosts)
     return Nothing()
+
+
+def accelerated_threat_field(
+    graph: MazeGraph,
+    ghosts: tuple[GhostOriginLike, ...],
+) -> Option[AcceleratedThreatField]:
+    """Run threat-only analysis when the selected backend supports it.
+
+    Returns:
+        Accelerated results, or Nothing when the operation is unavailable.
+    """
+    _, backend = _accelerated_backend()
+    if isinstance(backend, Some) and isinstance(backend.value, ThreatBackend):
+        return backend.value.threat_field(graph, ghosts)
+    return Nothing()
+
+
+def close_distance_backend() -> None:
+    """Release the cached accelerator and allow a later clean reload."""
+    global _backend_for_cleanup
+
+    try:
+        backend = _backend_for_cleanup
+        if isinstance(backend, Some) and isinstance(backend.value, ClosableBackend):
+            backend.value.close()
+    except Exception:
+        pass
+    finally:
+        _backend_for_cleanup = Nothing()
+        _accelerated_backend.cache_clear()
+
+
+atexit.register(close_distance_backend)
 
 
 def shortest_route(

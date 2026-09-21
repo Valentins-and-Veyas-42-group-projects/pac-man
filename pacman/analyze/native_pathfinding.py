@@ -5,12 +5,17 @@ from __future__ import annotations
 import ctypes
 import ctypes.util
 import os
+import threading
 from collections.abc import Iterable
 from pathlib import Path
 
 from typed_errs import Nothing, Option, Some
 
-from pacman.analyze.distance_backend import AcceleratedThreatAnalysis, GhostOriginLike
+from pacman.analyze.distance_backend import (
+    AcceleratedThreatAnalysis,
+    AcceleratedThreatField,
+    GhostOriginLike,
+)
 from pacman.analyze.models import MazeGraph
 from pacman.replay.models import TileIndex
 
@@ -122,7 +127,17 @@ class NativePathfinding:
             ctypes.c_size_t,
         ]
         library.pac_topology_analyze_distances.restype = ctypes.c_int
+        library.pac_topology_threat_field.argtypes = [
+            ctypes.c_void_p,
+            ctypes.POINTER(PacGhostOrigin),
+            ctypes.c_size_t,
+            ctypes.POINTER(ctypes.c_uint32),
+            ctypes.POINTER(ctypes.c_uint8),
+            ctypes.c_size_t,
+        ]
+        library.pac_topology_threat_field.restype = ctypes.c_int
         self._topologies: dict[int, tuple[MazeGraph, ctypes.c_void_p]] = {}
+        self._topology_lock = threading.Lock()
 
     @staticmethod
     def _encode(graph: MazeGraph) -> Option[ctypes.Array[PacTileNeighbors]]:
@@ -152,20 +167,23 @@ class NativePathfinding:
 
     def _topology_for(self, graph: MazeGraph) -> Option[ctypes.c_void_p]:
         """Return a cached owned topology, constructing it only once."""
-        cached = self._topologies.get(id(graph))
-        if cached is not None:
-            cached_graph, pointer = cached
-            if cached_graph is graph:
-                return Some(pointer)
-        encoded = self._encode(graph)
-        if isinstance(encoded, Nothing):
-            return Nothing()
-        pointer = ctypes.c_void_p()
-        status = self._library.pac_topology_create(encoded.value, len(graph.moves), graph.width, ctypes.byref(pointer))
-        if status != PAC_OK or pointer.value is None:
-            return Nothing()
-        self._topologies[id(graph)] = (graph, pointer)
-        return Some(pointer)
+        with self._topology_lock:
+            cached = self._topologies.get(id(graph))
+            if cached is not None:
+                cached_graph, pointer = cached
+                if cached_graph is graph:
+                    return Some(pointer)
+            encoded = self._encode(graph)
+            if isinstance(encoded, Nothing):
+                return Nothing()
+            pointer = ctypes.c_void_p()
+            status = self._library.pac_topology_create(
+                encoded.value, len(graph.moves), graph.width, ctypes.byref(pointer)
+            )
+            if status != PAC_OK or pointer.value is None:
+                return Nothing()
+            self._topologies[id(graph)] = (graph, pointer)
+            return Some(pointer)
 
     def distances(
         self,
@@ -306,11 +324,51 @@ class NativePathfinding:
         except Exception:
             return Nothing()
 
+    def threat_field(
+        self,
+        graph: MazeGraph,
+        ghosts: tuple[GhostOriginLike, ...],
+    ) -> Option[AcceleratedThreatField]:
+        """Compute dangerous-ghost arrivals without an unused player BFS.
+
+        Returns:
+            The native threat field, or Nothing when native execution fails.
+        """
+        try:
+            topology = self._topology_for(graph)
+            if isinstance(topology, Nothing):
+                return Nothing()
+            tile_count = len(graph.moves)
+            encoded_ghosts = (PacGhostOrigin * len(ghosts))(
+                *(PacGhostOrigin(int(ghost.tile), int(ghost.ghost), int(ghost.dangerous)) for ghost in ghosts)
+            )
+            etas = (ctypes.c_uint32 * tile_count)()
+            owners = (ctypes.c_uint8 * tile_count)()
+            status = self._library.pac_topology_threat_field(
+                topology.value,
+                encoded_ghosts,
+                len(ghosts),
+                etas,
+                owners,
+                tile_count,
+            )
+            if status != PAC_OK:
+                return Nothing()
+            return Some(
+                AcceleratedThreatField(
+                    etas=self._decode(etas),
+                    owner_masks=tuple(int(owner) for owner in owners),
+                )
+            )
+        except Exception:
+            return Nothing()
+
     def close(self) -> None:
         """Release every cached native topology."""
-        for _, topology in self._topologies.values():
-            self._library.pac_topology_destroy(topology)
-        self._topologies.clear()
+        with self._topology_lock:
+            for _, topology in self._topologies.values():
+                self._library.pac_topology_destroy(topology)
+            self._topologies.clear()
 
     def __del__(self) -> None:
         """Release cached native ownership during interpreter cleanup."""

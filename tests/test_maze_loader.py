@@ -44,7 +44,7 @@ def test_maze_paths_use_the_shared_distance_router(monkeypatch: pytest.MonkeyPat
         lambda: (DistanceBackendKind.NATIVE, Some(backend)),
     )
 
-    maze = Maze(cells=[[13, 5, 7]], entry=(0, 0), exit=(2, 0))
+    maze = Maze(cells=((13, 5, 7),), entry=(0, 0), exit=(2, 0))
     path = maze.path(maze.entry, maze.exit).unwrap()
     second_path = maze.path(maze.entry, maze.exit).unwrap()
 
@@ -54,7 +54,7 @@ def test_maze_paths_use_the_shared_distance_router(monkeypatch: pytest.MonkeyPat
 
 
 def test_legacy_solver_argument_routes_through_the_shared_backend() -> None:
-    maze = Maze(cells=[[13, 5, 7]], entry=(0, 0), exit=(2, 0))
+    maze = Maze(cells=((13, 5, 7),), entry=(0, 0), exit=(2, 0))
 
     assert maze.path(maze.entry, maze.exit, Solver.BFS).unwrap() == [(0, 0), (1, 0), (2, 0)]
     assert maze.path(maze.entry, maze.exit, Solver.DFS).unwrap() == [(0, 0), (1, 0), (2, 0)]

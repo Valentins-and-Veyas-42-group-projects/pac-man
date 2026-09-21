@@ -1,4 +1,4 @@
-from pacman.analyze.distance_backend import AcceleratedThreatAnalysis
+from pacman.analyze.distance_backend import AcceleratedThreatField
 from pacman.analyze.models import MazeGraph, Move
 from pacman.analyze.native_pathfinding import load_native_pathfinding
 from pacman.analyze.pathfinding import bfs
@@ -93,12 +93,11 @@ def test_native_analysis_matches_python_distances_and_threats() -> None:
 
 def test_threat_field_uses_accelerated_analysis(monkeypatch) -> None:
     monkeypatch.setattr(
-        "pacman.analyze.threat.accelerated_threat_analysis",
-        lambda graph, origin, ghosts: Some(
-            AcceleratedThreatAnalysis(
-                player_distances=(0,) * len(graph.moves),
-                threat_etas=(0, 1, 2, 1, 0),
-                threat_owner_masks=(1, 1, 3, 2, 2),
+        "pacman.analyze.threat.accelerated_threat_field",
+        lambda graph, ghosts: Some(
+            AcceleratedThreatField(
+                etas=(0, 1, 2, 1, 0),
+                owner_masks=(1, 1, 3, 2, 2),
             )
         ),
     )

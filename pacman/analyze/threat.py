@@ -5,7 +5,7 @@ from enum import Enum
 
 from typed_errs import Err, Nothing, Ok, Option, Result, Some
 
-from pacman.analyze.distance_backend import accelerated_threat_analysis, distances
+from pacman.analyze.distance_backend import accelerated_threat_field, distances
 from pacman.analyze.models import MazeGraph
 from pacman.analyze.state import GhostDistance
 from pacman.replay.models import Ghost, TileIndex
@@ -87,14 +87,14 @@ def build_threat_field(
             return threat_err(ThreatError.INVALID_GHOST_TILE)
 
     if graph.moves:
-        accelerated = accelerated_threat_analysis(graph, TileIndex(0), dangerous_ghosts)
+        accelerated = accelerated_threat_field(graph, dangerous_ghosts)
         if isinstance(accelerated, Some):
             return Ok(
                 ThreatField(
-                    etas=accelerated.value.threat_etas,
+                    etas=accelerated.value.etas,
                     ghosts=tuple(
                         tuple(ghost for ghost in Ghost if owner_mask & (1 << int(ghost)))
-                        for owner_mask in accelerated.value.threat_owner_masks
+                        for owner_mask in accelerated.value.owner_masks
                     ),
                 )
             )
