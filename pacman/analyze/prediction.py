@@ -3,8 +3,12 @@
 from dataclasses import dataclass
 from enum import Enum
 
-from typed_errs import Err, Ok, Result
+from typed_errs import Err, Nothing, Ok, Result
 
+from pacman.analyze.distance_backend import (
+    PredictedGhostOrigin,
+    accelerated_predicted_threat,
+)
 from pacman.analyze.models import MazeGraph, Move
 from pacman.analyze.threat import NO_THREAT, ThreatField
 from pacman.replay.models import Direction, Ghost, GhostFrame, GhostState, Maze, TileIndex
@@ -126,6 +130,46 @@ def build_predicted_threat_field(
     if horizon < 0:
         return prediction_err(PredictionError.INVALID_HORIZON)
 
+    origins: list[PredictedGhostOrigin] = []
+    for ghost in ghosts:
+        origin = maze.tile_index(ghost.position)
+        if not graph.contains(origin):
+            return prediction_err(PredictionError.INVALID_GHOST_TILE)
+        origins.append(
+            PredictedGhostOrigin(
+                tile=origin,
+                direction=ghost.direction,
+                ghost=ghost.ghost,
+                dangerous=ghost.state not in (GhostState.FRIGHTENED, GhostState.EATEN),
+            )
+        )
+
+    accelerated = accelerated_predicted_threat(graph, tuple(origins), horizon)
+    if not isinstance(accelerated, Nothing):
+        return Ok(
+            ThreatField(
+                accelerated.value.etas,
+                tuple(
+                    tuple(ghost for ghost in Ghost if owner_mask & (1 << int(ghost)))
+                    for owner_mask in accelerated.value.owner_masks
+                ),
+            )
+        )
+
+    return _build_predicted_threat_field_python(graph, maze, ghosts, horizon)
+
+
+def _build_predicted_threat_field_python(
+    graph: MazeGraph,
+    maze: Maze,
+    ghosts: tuple[GhostFrame, ...],
+    horizon: int,
+) -> Result[ThreatField, PredictionError]:
+    """Calculate predicted threats with the semantic reference path.
+
+    Returns:
+        A Python-computed threat field or typed prediction error.
+    """
     etas = [NO_THREAT] * len(graph.moves)
     owners: list[list[Ghost]] = [[] for _ in graph.moves]
     for ghost in ghosts:

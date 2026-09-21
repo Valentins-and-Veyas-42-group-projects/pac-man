@@ -12,7 +12,7 @@ from typed_errs import Err, Nothing, Ok, Option, Result, Some
 
 from pacman.analyze.models import MazeGraph, Path, PathfindingError
 from pacman.analyze.pathfinding import bfs, path_from_distances, pathfinding_err
-from pacman.replay.models import Ghost, TileIndex
+from pacman.replay.models import Direction, Ghost, TileIndex
 
 
 class GhostOriginLike(Protocol):
@@ -51,6 +51,29 @@ class AcceleratedThreatField:
     owner_masks: tuple[int, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class PredictedGhostOrigin:
+    """Compact ghost state accepted by accelerated prediction."""
+
+    tile: TileIndex
+    direction: Direction
+    ghost: Ghost
+    dangerous: bool
+
+
+@dataclass(frozen=True, slots=True)
+class AcceleratedAction:
+    """One safe first-move result from a native or WASM engine."""
+
+    direction: Direction
+    first_tile: TileIndex
+    reachable_tiles: tuple[TileIndex, ...]
+    safe_tiles: int
+    safe_intersections: int
+    horizon_ticks: int
+    minimum_margin: Option[int]
+
+
 class DistanceBackend(Protocol):
     """Small contract shared by optional distance implementations."""
 
@@ -82,6 +105,31 @@ class ThreatBackend(Protocol):
         ghosts: tuple[GhostOriginLike, ...],
     ) -> Option[AcceleratedThreatField]:
         """Return dangerous-ghost arrivals without a player search."""
+        ...
+
+
+@runtime_checkable
+class PredictionBackend(Protocol):
+    """Optional bounded ghost prediction implemented by accelerators."""
+
+    def predict_threat(
+        self,
+        graph: MazeGraph,
+        ghosts: tuple[PredictedGhostOrigin, ...],
+        horizon: int,
+    ) -> Option[AcceleratedThreatField]:
+        """Return earliest predicted dangerous arrivals."""
+        ...
+
+
+@runtime_checkable
+class OptionsBackend(Protocol):
+    """Optional safe-action search provided by an accelerator."""
+
+    def evaluate_actions(
+        self, graph: MazeGraph, player_tile: TileIndex, threat_etas: tuple[int, ...]
+    ) -> Option[tuple[AcceleratedAction, ...]]:
+        """Evaluate all legal first moves."""
         ...
 
 
@@ -214,6 +262,36 @@ def accelerated_threat_field(
     _, backend = _accelerated_backend()
     if isinstance(backend, Some) and isinstance(backend.value, ThreatBackend):
         return backend.value.threat_field(graph, ghosts)
+    return Nothing()
+
+
+def accelerated_predicted_threat(
+    graph: MazeGraph,
+    ghosts: tuple[PredictedGhostOrigin, ...],
+    horizon: int,
+) -> Option[AcceleratedThreatField]:
+    """Run bounded prediction when the selected backend supports it.
+
+    Returns:
+        Accelerated results, or Nothing when the operation is unavailable.
+    """
+    _, backend = _accelerated_backend()
+    if isinstance(backend, Some) and isinstance(backend.value, PredictionBackend):
+        return backend.value.predict_threat(graph, ghosts, horizon)
+    return Nothing()
+
+
+def accelerated_actions(
+    graph: MazeGraph, player_tile: TileIndex, threat_etas: tuple[int, ...]
+) -> Option[tuple[AcceleratedAction, ...]]:
+    """Evaluate safe actions through the selected accelerator.
+
+    Returns:
+        Action facts, or Nothing when the operation is unavailable.
+    """
+    _, backend = _accelerated_backend()
+    if isinstance(backend, Some) and isinstance(backend.value, OptionsBackend):
+        return backend.value.evaluate_actions(graph, player_tile, threat_etas)
     return Nothing()
 
 

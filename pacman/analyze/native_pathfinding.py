@@ -12,12 +12,14 @@ from pathlib import Path
 from typed_errs import Nothing, Option, Some
 
 from pacman.analyze.distance_backend import (
+    AcceleratedAction,
     AcceleratedThreatAnalysis,
     AcceleratedThreatField,
     GhostOriginLike,
+    PredictedGhostOrigin,
 )
 from pacman.analyze.models import MazeGraph
-from pacman.replay.models import TileIndex
+from pacman.replay.models import Direction, TileIndex
 
 PACMAN_ABI_VERSION = 2
 PAC_OK = 0
@@ -51,6 +53,32 @@ class PacGhostOrigin(ctypes.Structure):
         ("tile", ctypes.c_uint16),
         ("ghost", ctypes.c_uint8),
         ("dangerous", ctypes.c_uint8),
+    ]
+
+
+class PacPredictedGhost(ctypes.Structure):
+    """C representation of one direction-aware predicted ghost."""
+
+    _fields_ = [
+        ("tile", ctypes.c_uint16),
+        ("direction", ctypes.c_uint8),
+        ("ghost", ctypes.c_uint8),
+        ("dangerous", ctypes.c_uint8),
+        ("reserved", ctypes.c_uint8 * 3),
+    ]
+
+
+class PacActionEvaluation(ctypes.Structure):
+    """C representation of one safe first-move evaluation."""
+
+    _fields_ = [
+        ("safe_tiles", ctypes.c_uint32),
+        ("safe_intersections", ctypes.c_uint32),
+        ("horizon_ticks", ctypes.c_uint32),
+        ("minimum_margin", ctypes.c_int32),
+        ("first_tile", ctypes.c_uint16),
+        ("direction", ctypes.c_uint8),
+        ("has_minimum_margin", ctypes.c_uint8),
     ]
 
 
@@ -136,6 +164,28 @@ class NativePathfinding:
             ctypes.c_size_t,
         ]
         library.pac_topology_threat_field.restype = ctypes.c_int
+        library.pac_topology_predict_threat.argtypes = [
+            ctypes.c_void_p,
+            ctypes.POINTER(PacPredictedGhost),
+            ctypes.c_size_t,
+            ctypes.c_size_t,
+            ctypes.POINTER(ctypes.c_uint32),
+            ctypes.POINTER(ctypes.c_uint8),
+            ctypes.c_size_t,
+        ]
+        library.pac_topology_predict_threat.restype = ctypes.c_int
+        library.pac_topology_evaluate_actions.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_uint16,
+            ctypes.POINTER(ctypes.c_uint32),
+            ctypes.c_size_t,
+            ctypes.POINTER(PacActionEvaluation),
+            ctypes.c_size_t,
+            ctypes.POINTER(ctypes.c_uint16),
+            ctypes.c_size_t,
+            ctypes.POINTER(ctypes.c_size_t),
+        ]
+        library.pac_topology_evaluate_actions.restype = ctypes.c_int
         self._topologies: dict[int, tuple[MazeGraph, ctypes.c_void_p]] = {}
         self._topology_lock = threading.Lock()
 
@@ -358,6 +408,110 @@ class NativePathfinding:
                 AcceleratedThreatField(
                     etas=self._decode(etas),
                     owner_masks=tuple(int(owner) for owner in owners),
+                )
+            )
+        except Exception:
+            return Nothing()
+
+    def predict_threat(
+        self,
+        graph: MazeGraph,
+        ghosts: tuple[PredictedGhostOrigin, ...],
+        horizon: int,
+    ) -> Option[AcceleratedThreatField]:
+        """Compute bounded direction-aware ghost threats.
+
+        Returns:
+            The native predicted threat field, or Nothing on failure.
+        """
+        try:
+            topology = self._topology_for(graph)
+            if isinstance(topology, Nothing):
+                return Nothing()
+            encoded = (PacPredictedGhost * len(ghosts))(
+                *(
+                    PacPredictedGhost(
+                        int(ghost.tile),
+                        int(ghost.direction),
+                        int(ghost.ghost),
+                        int(ghost.dangerous),
+                    )
+                    for ghost in ghosts
+                )
+            )
+            tile_count = len(graph.moves)
+            etas = (ctypes.c_uint32 * tile_count)()
+            owners = (ctypes.c_uint8 * tile_count)()
+            status = self._library.pac_topology_predict_threat(
+                topology.value,
+                encoded,
+                len(ghosts),
+                horizon,
+                etas,
+                owners,
+                tile_count,
+            )
+            if status != PAC_OK:
+                return Nothing()
+            return Some(
+                AcceleratedThreatField(
+                    etas=self._decode(etas),
+                    owner_masks=tuple(int(owner) for owner in owners),
+                )
+            )
+        except Exception:
+            return Nothing()
+
+    def evaluate_actions(
+        self, graph: MazeGraph, player_tile: TileIndex, threat_etas: tuple[int, ...]
+    ) -> Option[tuple[AcceleratedAction, ...]]:
+        """Return safe first-move facts from the cached topology.
+
+        Returns:
+            Action facts, or Nothing when the native call fails.
+        """
+        if len(threat_etas) != len(graph.moves):
+            return Nothing()
+        try:
+            topology = self._topology_for(graph)
+            if isinstance(topology, Nothing):
+                return Nothing()
+            count = len(graph.moves)
+            etas = (ctypes.c_uint32 * count)(*(NATIVE_UNREACHABLE if eta < 0 else eta for eta in threat_etas))
+            actions = (PacActionEvaluation * 4)()
+            reachable = (ctypes.c_uint16 * (count * 4))()
+            action_count = ctypes.c_size_t()
+            status = self._library.pac_topology_evaluate_actions(
+                topology.value,
+                int(player_tile),
+                etas,
+                count,
+                actions,
+                4,
+                reachable,
+                count * 4,
+                ctypes.byref(action_count),
+            )
+            if status != PAC_OK or action_count.value > 4:
+                return Nothing()
+            from typed_errs import Some
+
+            return Some(
+                tuple(
+                    AcceleratedAction(
+                        direction=Direction(actions[index].direction),
+                        first_tile=TileIndex(actions[index].first_tile),
+                        reachable_tiles=tuple(
+                            TileIndex(reachable[index * count + tile]) for tile in range(actions[index].safe_tiles)
+                        ),
+                        safe_tiles=actions[index].safe_tiles,
+                        safe_intersections=actions[index].safe_intersections,
+                        horizon_ticks=actions[index].horizon_ticks,
+                        minimum_margin=(
+                            Some(actions[index].minimum_margin) if actions[index].has_minimum_margin else Nothing()
+                        ),
+                    )
+                    for index in range(action_count.value)
                 )
             )
         except Exception:

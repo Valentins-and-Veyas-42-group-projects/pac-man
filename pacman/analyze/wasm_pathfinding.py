@@ -8,12 +8,14 @@ from typing import Protocol, cast
 from typed_errs import Nothing, Option, Some
 
 from pacman.analyze.distance_backend import (
+    AcceleratedAction,
     AcceleratedThreatAnalysis,
     AcceleratedThreatField,
     GhostOriginLike,
+    PredictedGhostOrigin,
 )
 from pacman.analyze.models import MazeGraph
-from pacman.replay.models import TileIndex
+from pacman.replay.models import Direction, TileIndex
 
 PACMAN_ABI_VERSION = 2
 MOVES_PER_TILE = 4
@@ -42,6 +44,18 @@ class WasmThreatField(Protocol):
 
     etas: WasmDistances
     ownerMasks: WasmDistances  # noqa: N815
+
+
+class WasmAction(Protocol):
+    """One action record from the browser bridge."""
+
+    direction: int
+    firstTile: int  # noqa: N815
+    reachableTiles: WasmDistances  # noqa: N815
+    safeTiles: int  # noqa: N815
+    safeIntersections: int  # noqa: N815
+    horizonTicks: int  # noqa: N815
+    minimumMargin: int | None  # noqa: N815
 
 
 class WasmBridge(Protocol):
@@ -90,6 +104,22 @@ class WasmBridge(Protocol):
         ghosts: list[int],
     ) -> WasmThreatField | None:
         """Compute dangerous-ghost fields without a player search."""
+        ...
+
+    def topologyPredictThreat(  # noqa: N802
+        self,
+        topology: int,
+        tile_count: int,
+        ghosts: list[int],
+        horizon: int,
+    ) -> WasmThreatField | None:
+        """Compute bounded direction-aware ghost threats."""
+        ...
+
+    def topologyEvaluateActions(  # noqa: N802
+        self, topology: int, tile_count: int, player_tile: int, threat_etas: list[int]
+    ) -> list[WasmAction] | None:
+        """Evaluate safe first moves with the cached topology."""
         ...
 
 
@@ -216,6 +246,75 @@ class WasmPathfinding:
             if len(field.etas) != len(graph.moves) or len(field.owner_masks) != len(graph.moves):
                 return Nothing()
             return Some(field)
+        except Exception:
+            return Nothing()
+
+    def predict_threat(
+        self,
+        graph: MazeGraph,
+        ghosts: tuple[PredictedGhostOrigin, ...],
+        horizon: int,
+    ) -> Option[AcceleratedThreatField]:
+        """Return bounded direction-aware ghost threats."""
+        try:
+            topology = self._topology_for(graph)
+            if isinstance(topology, Nothing):
+                return Nothing()
+            encoded: list[int] = []
+            for ghost in ghosts:
+                tile = int(ghost.tile)
+                encoded.extend((
+                    tile & 0xFF,
+                    tile >> 8,
+                    int(ghost.direction),
+                    int(ghost.ghost),
+                    int(ghost.dangerous),
+                    0,
+                    0,
+                    0,
+                ))
+            result = self._bridge.topologyPredictThreat(topology.value, len(graph.moves), encoded, horizon)
+            if result is None:
+                return Nothing()
+            field = AcceleratedThreatField(
+                etas=tuple(int(value) for value in result.etas),
+                owner_masks=tuple(int(value) for value in result.ownerMasks),
+            )
+            if len(field.etas) != len(graph.moves) or len(field.owner_masks) != len(graph.moves):
+                return Nothing()
+            return Some(field)
+        except Exception:
+            return Nothing()
+
+    def evaluate_actions(
+        self, graph: MazeGraph, player_tile: TileIndex, threat_etas: tuple[int, ...]
+    ) -> Option[tuple[AcceleratedAction, ...]]:
+        """Return safe first-move facts from the browser bridge."""
+        if len(threat_etas) != len(graph.moves):
+            return Nothing()
+        try:
+            topology = self._topology_for(graph)
+            if isinstance(topology, Nothing):
+                return Nothing()
+            result = self._bridge.topologyEvaluateActions(
+                topology.value, len(graph.moves), int(player_tile), list(threat_etas)
+            )
+            if result is None:
+                return Nothing()
+            return Some(
+                tuple(
+                    AcceleratedAction(
+                        direction=Direction(item.direction),
+                        first_tile=TileIndex(item.firstTile),
+                        reachable_tiles=tuple(TileIndex(tile) for tile in item.reachableTiles),
+                        safe_tiles=int(item.safeTiles),
+                        safe_intersections=int(item.safeIntersections),
+                        horizon_ticks=int(item.horizonTicks),
+                        minimum_margin=Some(int(item.minimumMargin)) if item.minimumMargin is not None else Nothing(),
+                    )
+                    for item in result
+                )
+            )
         except Exception:
             return Nothing()
 

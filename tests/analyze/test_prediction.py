@@ -1,6 +1,7 @@
 from pacman.analyze.maze_graph import build_maze_graph
 from pacman.analyze.prediction import (
     PredictionError,
+    _build_predicted_threat_field_python,
     build_predicted_threat_field,
     predict_ghost,
 )
@@ -93,3 +94,17 @@ def test_prediction_rejects_negative_horizon() -> None:
 
     assert isinstance(result, Err)
     assert result.error is PredictionError.INVALID_HORIZON
+
+
+def test_accelerated_predicted_threat_matches_python_reference() -> None:
+    maze = corridor([13, 5, 7])
+    graph = build_maze_graph(maze).unwrap()
+    ghosts = (
+        ghost(0, Direction.RIGHT),
+        ghost(2, Direction.LEFT),
+    )
+
+    accelerated = build_predicted_threat_field(graph, maze, ghosts, 2).unwrap()
+    reference = _build_predicted_threat_field_python(graph, maze, ghosts, 2).unwrap()
+
+    assert accelerated == reference

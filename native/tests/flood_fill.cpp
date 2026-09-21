@@ -14,6 +14,9 @@ import pacman.graph;
 import pacman.topology;
 import pacman.types;
 
+fn run_prediction_tests() -> int;
+fn run_options_tests() -> int;
+
 [[nodiscard]]
 fn test_cross_word_bitboard_operations() noexcept -> bool {
     constexpr let tile_count = std::size_t{130};
@@ -198,6 +201,13 @@ fn test_bfs_distances() noexcept -> bool {
 }
 
 fn main() -> int {
+    if (const let options_status = run_options_tests(); options_status != 0) {
+        return options_status;
+    }
+    if (const let prediction_status = run_prediction_tests();
+        prediction_status != 0) {
+        return prediction_status;
+    }
     if (!test_cross_word_bitboard_operations()) {
         return 1;
     }

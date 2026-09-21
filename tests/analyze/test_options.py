@@ -93,3 +93,15 @@ def test_action_evaluation_rejects_invalid_inputs() -> None:
     assert illegal_action.error is OptionsError.ILLEGAL_ACTION
     assert isinstance(wrong_size, Err)
     assert wrong_size.error is OptionsError.FIELD_SIZE_MISMATCH
+
+
+def test_accelerated_actions_match_python_reference() -> None:
+    graph = options_graph()
+    field = threats((0, 3, 2, 10, 10, 10))
+    player = TileIndex(0)
+    expected = tuple(
+        evaluate_action(graph, field, player, move.direction).unwrap()
+        for move in graph.neighbors(player)
+    )
+
+    assert evaluate_actions(graph, field, player).unwrap() == expected

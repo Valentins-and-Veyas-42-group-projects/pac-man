@@ -7,6 +7,7 @@ tile, allowing four possible values.
 The codec contains no SQLite or replay lifecycle logic.
 """
 
+from collections.abc import Sequence
 from enum import Enum
 from typing import cast
 
@@ -21,7 +22,6 @@ from typed_errs import (
 )
 
 from .models import Collectible
-
 
 CELL_MASK = 0b1111
 COLLECTIBLE_MASK = 0b11
@@ -113,7 +113,7 @@ def valid_collectible(value: int) -> bool:
 
 
 def encode_topology(
-    cells: list[list[int]],
+    cells: Sequence[Sequence[int]],
 ) -> Result[bytes, MazeCodecError]:
     """Encode maze wall topology using four bits per cell.
 
@@ -183,10 +183,7 @@ def decode_topology(
         if len(cells) < cell_count:
             cells.append((value >> 4) & CELL_MASK)
 
-    rows = [
-        cells[offset : offset + width]
-        for offset in range(0, cell_count, width)
-    ]
+    rows = [cells[offset : offset + width] for offset in range(0, cell_count, width)]
 
     return Ok(rows)
 

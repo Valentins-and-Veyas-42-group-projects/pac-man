@@ -48,6 +48,24 @@ typedef struct pac_ghost_origin {
     uint8_t dangerous;
 } pac_ghost_origin;
 
+typedef struct pac_predicted_ghost {
+    uint16_t tile;
+    pac_direction direction;
+    uint8_t ghost;
+    uint8_t dangerous;
+    uint8_t reserved[3];
+} pac_predicted_ghost;
+
+typedef struct pac_action_evaluation {
+    uint32_t safe_tiles;
+    uint32_t safe_intersections;
+    uint32_t horizon_ticks;
+    int32_t minimum_margin;
+    uint16_t first_tile;
+    uint8_t direction;
+    uint8_t has_minimum_margin;
+} pac_action_evaluation;
+
 typedef struct pac_topology pac_topology;
 
 /* Return the supported stable C ABI version. */
@@ -107,6 +125,19 @@ PAC_API pac_status pac_topology_analyze_distances(
 PAC_API pac_status pac_topology_threat_field(
     pac_topology *topology, const pac_ghost_origin *ghosts, size_t ghost_count,
     uint32_t *threat_eta, uint8_t *threat_owners, size_t threat_capacity);
+
+/* Predict bounded ghost movement and combine earliest dangerous arrivals. */
+PAC_API pac_status pac_topology_predict_threat(
+    pac_topology *topology, const pac_predicted_ghost *ghosts,
+    size_t ghost_count, size_t horizon, uint32_t *threat_eta,
+    uint8_t *threat_owners, size_t threat_capacity);
+
+/* Reachable output contains four tile_count-element slices in BFS order. */
+PAC_API pac_status pac_topology_evaluate_actions(
+    pac_topology *topology, uint16_t player_tile, const uint32_t *threat_eta,
+    size_t threat_capacity, pac_action_evaluation *actions,
+    size_t action_capacity, uint16_t *reachable, size_t reachable_capacity,
+    size_t *action_count);
 
 /* One-shot graph-walking BFS retained for measured comparisons. */
 PAC_API pac_status pac_bfs_distances_graph(const pac_tile_neighbors *tiles,

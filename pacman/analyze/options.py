@@ -6,6 +6,7 @@ from enum import Enum
 
 from typed_errs import Err, Nothing, Ok, Option, Result, Some
 
+from pacman.analyze.distance_backend import accelerated_actions
 from pacman.analyze.models import MazeGraph, Move
 from pacman.analyze.threat import NO_THREAT, ThreatField
 from pacman.analyze.topology import TileKind, classify_tile
@@ -141,6 +142,23 @@ def evaluate_actions(
         return options_err(OptionsError.INVALID_PLAYER_TILE)
     if len(threats.etas) != len(graph.moves) or len(threats.ghosts) != len(graph.moves):
         return options_err(OptionsError.FIELD_SIZE_MISMATCH)
+
+    accelerated = accelerated_actions(graph, player_tile, threats.etas)
+    if isinstance(accelerated, Some):
+        return Ok(
+            tuple(
+                ActionEvaluation(
+                    action=item.direction,
+                    first_tile=item.first_tile,
+                    reachable_tiles=item.reachable_tiles,
+                    safe_tiles=item.safe_tiles,
+                    safe_intersections=item.safe_intersections,
+                    horizon_ticks=item.horizon_ticks,
+                    minimum_margin=item.minimum_margin,
+                )
+                for item in accelerated.value
+            )
+        )
 
     evaluations: list[ActionEvaluation] = []
     for move in graph.neighbors(player_tile):

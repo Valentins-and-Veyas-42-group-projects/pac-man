@@ -39,5 +39,28 @@ assert.deepEqual(
         ownerMasks: [1, 3, 2],
     },
 );
+assert.deepEqual(
+    engine.topologyPredictThreat(
+        topology,
+        3,
+        [0, 0, 1, 0, 1, 0, 0, 0, 2, 0, 3, 1, 1, 0, 0, 0],
+        1,
+    ),
+    {
+        etas: [0, 1, 0],
+        ownerMasks: [1, 3, 2],
+    },
+);
+assert.deepEqual(engine.topologyEvaluateActions(topology, 3, 0, [-1, 3, 2]), [
+    {
+        direction: 1,
+        firstTile: 1,
+        reachableTiles: [1, 0],
+        safeTiles: 2,
+        safeIntersections: 0,
+        horizonTicks: 2,
+        minimumMargin: 2,
+    },
+]);
 engine.destroyTopology(topology);
-console.log("Browser bridge: WASM BFS and threat analysis passed");
+console.log("Browser bridge: WASM BFS, threats, and actions passed");

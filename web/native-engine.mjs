@@ -181,6 +181,87 @@ function topologyThreatField(topology, tileCount, ghosts) {
     }
 }
 
+function topologyPredictThreat(topology, tileCount, ghosts, horizon) {
+    const ghostPointer = module._malloc(ghosts.length);
+    const etaPointer = module._malloc(tileCount * Uint32Array.BYTES_PER_ELEMENT);
+    const ownersPointer = module._malloc(tileCount);
+    if ((ghosts.length !== 0 && ghostPointer === 0) || etaPointer === 0 || ownersPointer === 0) {
+        module._free(ghostPointer);
+        module._free(etaPointer);
+        module._free(ownersPointer);
+        return null;
+    }
+    try {
+        module.HEAPU8.set(ghosts, ghostPointer);
+        const status = module._pac_topology_predict_threat(
+            topology,
+            ghostPointer,
+            ghosts.length / 8,
+            horizon,
+            etaPointer,
+            ownersPointer,
+            tileCount,
+        );
+        if (status !== 0) {
+            return null;
+        }
+        return {
+            etas: Array.from(
+                module.HEAPU32.subarray(etaPointer / 4, etaPointer / 4 + tileCount),
+                (distance) => (distance === UNREACHABLE ? -1 : distance),
+            ),
+            ownerMasks: Array.from(
+                module.HEAPU8.subarray(ownersPointer, ownersPointer + tileCount),
+            ),
+        };
+    } finally {
+        module._free(ownersPointer);
+        module._free(etaPointer);
+        module._free(ghostPointer);
+    }
+}
+
+function topologyEvaluateActions(topology, tileCount, playerTile, threatEtas) {
+    const etaPointer = module._malloc(tileCount * 4);
+    const actionsPointer = module._malloc(4 * 20);
+    const reachablePointer = module._malloc(tileCount * 4 * 2);
+    const countPointer = module._malloc(4);
+    if (!etaPointer || !actionsPointer || !reachablePointer || !countPointer) {
+        for (const pointer of [etaPointer, actionsPointer, reachablePointer, countPointer]) module._free(pointer);
+        return null;
+    }
+    try {
+        module.HEAPU32.set(
+            Array.from(threatEtas, (eta) => eta < 0 ? UNREACHABLE : eta),
+            etaPointer / 4,
+        );
+        const status = module._pac_topology_evaluate_actions(
+            topology, playerTile, etaPointer, tileCount, actionsPointer, 4,
+            reachablePointer, tileCount * 4, countPointer,
+        );
+        if (status !== 0) return null;
+        const count = module.HEAPU32[countPointer / 4];
+        if (count > 4) return null;
+        const view = new DataView(module.HEAPU8.buffer);
+        return Array.from({ length: count }, (_, index) => {
+            const offset = actionsPointer + index * 20;
+            const safeTiles = view.getUint32(offset, true);
+            return {
+                safeTiles,
+                safeIntersections: view.getUint32(offset + 4, true),
+                horizonTicks: view.getUint32(offset + 8, true),
+                minimumMargin: view.getUint8(offset + 19) ? view.getInt32(offset + 12, true) : null,
+                firstTile: view.getUint16(offset + 16, true),
+                direction: view.getUint8(offset + 18),
+                reachableTiles: Array.from({ length: safeTiles }, (_, tile) =>
+                    view.getUint16(reachablePointer + (index * tileCount + tile) * 2, true)),
+            };
+        });
+    } finally {
+        for (const pointer of [countPointer, reachablePointer, actionsPointer, etaPointer]) module._free(pointer);
+    }
+}
+
 globalThis.pacmanWasm = Object.freeze({
     abiVersion: () => module._pac_abi_version(),
     bfsDistances,
@@ -189,6 +270,8 @@ globalThis.pacmanWasm = Object.freeze({
     topologyBfsDistances,
     topologyAnalyzeDistances,
     topologyThreatField,
+    topologyPredictThreat,
+    topologyEvaluateActions,
 });
 
 export default globalThis.pacmanWasm;
