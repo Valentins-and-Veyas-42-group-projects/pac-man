@@ -56,7 +56,15 @@ class Ghost:
 
 
 class Screen(Enum):
-    """Which UI screen is currently active."""
+    """Which UI screen is currently active (one per `Renderer.draw_*`)."""
+
+    MAIN_MENU = "main_menu"
+    INSTRUCTIONS = "instructions"
+    HIGHSCORES = "highscores"
+    PLAYING = "playing"
+    PAUSED = "paused"
+    GAME_OVER = "game_over"
+    VICTORY = "victory"
 
 
 @dataclass(frozen=True, slots=True)
