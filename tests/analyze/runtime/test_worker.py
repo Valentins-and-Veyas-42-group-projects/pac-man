@@ -5,6 +5,7 @@ from pacman.analyze.runtime.worker import (
     AnalysisWorkerError,
     WorkerStatus,
 )
+from pacman.analyze.runtime.worker_factory import WorkerBackend, create_analysis_worker
 from pacman.analyze.simulation import SimulationRules
 from pacman.replay.maze_codec import encode_topology
 from pacman.replay.models import (
@@ -79,3 +80,20 @@ def test_unstarted_worker_closes_idempotently() -> None:
 
     assert worker.status is WorkerStatus.CLOSED
     assert worker.offer(batch(10)) is AnalysisOffer.CLOSED
+
+
+def test_inline_worker_matches_process_analysis_messages() -> None:
+    worker = create_analysis_worker(
+        maze(), SimulationRules(), backend=WorkerBackend.INLINE
+    ).unwrap()
+
+    worker.start().unwrap()
+    assert worker.offer(batch(10)) is AnalysisOffer.ACCEPTED
+    assert worker.offer(batch(11, Direction.DOWN)) is AnalysisOffer.ACCEPTED
+    assert worker.offer(batch(41, Direction.DOWN)) is AnalysisOffer.ACCEPTED
+    worker.close().unwrap()
+
+    assert worker.drain() == (
+        TurnObserved(ReplayId(7), Tick(11)),
+        DecisionEvaluationQueued(ReplayId(7), Tick(11), Tick(41)),
+    )

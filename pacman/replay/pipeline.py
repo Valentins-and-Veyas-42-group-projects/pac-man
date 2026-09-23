@@ -9,7 +9,8 @@ from typed_concurrency import Channel, thread
 from typed_errs import Err, Ok, Result
 
 from pacman.analyze.messages import AnalysisMessage
-from pacman.analyze.runtime.worker import AnalysisOffer, AnalysisWorker
+from pacman.analyze.runtime.worker_contract import AnalysisOffer
+from pacman.analyze.runtime.worker_factory import WorkerBackend, create_analysis_worker
 from pacman.analyze.simulation import SimulationRules
 
 from .models import CollectibleChange, Frame, Maze, ReplayId
@@ -65,12 +66,15 @@ class ReplayPipeline:
         buffer_size: int = DEFAULT_BUFFER_SIZE,
         writer_capacity: int = 4,
         analysis_capacity: int = 32,
+        analysis_backend: WorkerBackend = WorkerBackend.PROCESS,
     ) -> None:
         """Use :meth:`create` so allocation failures remain typed."""
         self._replay_id = replay_id
         self._channel = Channel[WriterCommand](writer_capacity)
         self._writer = ReplayWriter(store, self._channel)
-        self._worker_result = AnalysisWorker.create(maze, rules, analysis_capacity)
+        self._worker_result = create_analysis_worker(
+            maze, rules, analysis_capacity, analysis_backend
+        )
         self._recorder = Recorder(replay_id, self, buffer_size)
         self._writer_finished = asyncio.Event()
         self._frames = 0
@@ -89,6 +93,7 @@ class ReplayPipeline:
         buffer_size: int = DEFAULT_BUFFER_SIZE,
         writer_capacity: int = 4,
         analysis_capacity: int = 32,
+        analysis_backend: WorkerBackend = WorkerBackend.PROCESS,
     ) -> Result["ReplayPipeline", ReplayPipelineError]:
         """Allocate a pipeline without starting its worker process.
 
@@ -105,6 +110,7 @@ class ReplayPipeline:
             buffer_size,
             writer_capacity,
             analysis_capacity,
+            analysis_backend,
         )
         if isinstance(pipeline._worker_result, Err):
             return pipeline_err(ReplayPipelineError.ANALYSIS_CREATE_FAILED)
