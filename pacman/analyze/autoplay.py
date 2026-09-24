@@ -4,10 +4,13 @@ from enum import Enum
 
 from typed_errs import Err, Nothing, Ok, Option, Result, Some
 
+from pacman.analyze.decision import analyze_decision
 from pacman.analyze.models import MazeGraph
 from pacman.analyze.options import ActionEvaluation, evaluate_actions
+from pacman.analyze.outcomes import best_outcome
 from pacman.analyze.prediction import build_predicted_threat_field
-from pacman.replay.models import Direction, Frame, Maze
+from pacman.analyze.simulation import SimulationRules
+from pacman.replay.models import CollectibleChange, Direction, Frame, Maze
 
 
 class AutoPlayError(Enum):
@@ -16,6 +19,7 @@ class AutoPlayError(Enum):
     INVALID_FRAME = "invalid_frame"
     PREDICTION_FAILED = "prediction_failed"
     OPTIONS_FAILED = "options_failed"
+    ANALYSIS_FAILED = "analysis_failed"
 
 
 def _error(error: AutoPlayError) -> Err[AutoPlayError]:
@@ -63,3 +67,35 @@ def choose_action(
     if not actions.value:
         return Ok(Nothing())
     return Ok(Some(max(actions.value, key=_rank).action))
+
+
+def choose_tactical_action(
+    graph: MazeGraph,
+    maze: Maze,
+    changes: tuple[CollectibleChange, ...],
+    frame: Frame,
+    rules: SimulationRules,
+) -> Result[Option[Direction], AutoPlayError]:
+    """Choose the best bounded counterfactual, including score and survival.
+
+    This is an analysis policy, not a game-loop or input adapter. It uses the
+    same backend-selected computation as replay decision analysis.
+
+    Returns:
+        Best legal direction, Nothing at a tile with no exits, or a typed error.
+    """
+    origin = maze.tile_index(frame.player.position)
+    if not graph.contains(origin):
+        return _error(AutoPlayError.INVALID_FRAME)
+    moves = graph.neighbors(origin)
+    if not moves:
+        return Ok(Nothing())
+    analyzed = analyze_decision(
+        graph, maze, changes, frame, moves[0].direction, rules,
+    )
+    if isinstance(analyzed, Err):
+        return _error(AutoPlayError.ANALYSIS_FAILED)
+    best = best_outcome(analyzed.value.outcomes)
+    if isinstance(best, Nothing):
+        return Ok(Nothing())
+    return Ok(Some(best.value.action))
