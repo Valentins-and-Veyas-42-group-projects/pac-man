@@ -16,6 +16,7 @@ import pacman.types;
 
 fn run_prediction_tests() -> int;
 fn run_options_tests() -> int;
+fn run_simulation_tests() -> int;
 
 [[nodiscard]]
 fn test_cross_word_bitboard_operations() noexcept -> bool {
@@ -201,6 +202,10 @@ fn test_bfs_distances() noexcept -> bool {
 }
 
 fn main() -> int {
+    if (const let simulation_status = run_simulation_tests();
+        simulation_status != 0) {
+        return simulation_status;
+    }
     if (const let options_status = run_options_tests(); options_status != 0) {
         return options_status;
     }
