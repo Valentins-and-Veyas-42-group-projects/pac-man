@@ -59,9 +59,10 @@ native-test:
 	xmake run pacman-native-tests
 
 native-sanitize:
-	xmake f -c -m debug --toolchain=clang --policies=build.sanitizer.address,build.sanitizer.undefined
+	xmake f -c -m debug --toolchain=clang -o .build/sanitize --policies=build.sanitizer.address,build.sanitizer.undefined
 	xmake build pacman-native-tests pacman-native
 	xmake run pacman-native-tests
+	xmake f -c -m release --toolchain=clang
 
 native-benchmark:
 	xmake f -c -m release --toolchain=clang
