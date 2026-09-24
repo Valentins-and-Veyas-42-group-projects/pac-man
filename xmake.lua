@@ -6,6 +6,8 @@ set_toolchains("clang")
 
 add_rules("mode.debug", "mode.release")
 set_policy("build.across_targets_in_parallel", true)
+-- Sanitizer and release builds must not reuse incompatible module artifacts.
+set_policy("build.c++.modules.reuse", false)
 
 set_warnings("all", "extra")
 add_cxxflags("-Wpedantic", "-Wconversion", "-Wshadow", { tools = { "gcc", "clang" } })
