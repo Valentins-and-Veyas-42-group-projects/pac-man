@@ -74,6 +74,7 @@ wasm-test:
 	xmake run pacman-wasm-tests
 	xmake build pacman-wasm
 	node web/test-native-engine.mjs
+	node web/test-analysis-worker.mjs
 
 wasm:
 	xmake f -c -p wasm -a wasm32 -m release
