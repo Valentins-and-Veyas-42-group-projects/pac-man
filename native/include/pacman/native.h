@@ -14,13 +14,14 @@
 extern "C" {
 #endif
 
-#define PACMAN_ABI_VERSION 2u
+#define PACMAN_ABI_VERSION 3u
 
 typedef enum pac_status {
     PAC_OK = 0,
     PAC_INVALID_ARGUMENT = 1,
     PAC_BUFFER_TOO_SMALL = 2,
-    PAC_INTERNAL_ERROR = 3
+    PAC_INTERNAL_ERROR = 3,
+    PAC_CAPACITY_EXCEEDED = 4
 } pac_status;
 
 typedef uint8_t pac_direction;
@@ -65,6 +66,39 @@ typedef struct pac_action_evaluation {
     uint8_t direction;
     uint8_t has_minimum_margin;
 } pac_action_evaluation;
+
+typedef struct pac_simulation_input {
+    const uint8_t *collectibles;
+    size_t collectible_count;
+    /* (horizon + 1) * 4 * tile_count bytes, ordered by tick, ghost, tile.
+       0 = absent, 1 = dangerous, 2 = frightened, 3 = eaten. */
+    const uint8_t *prediction_grid;
+    size_t prediction_count;
+    const uint32_t *ghost_combo_scores;
+    size_t ghost_combo_score_count;
+    uint32_t horizon;
+    uint32_t state_capacity;
+    uint32_t pacgum_score;
+    uint32_t power_pellet_score;
+    uint32_t frightened_ticks;
+    uint16_t origin;
+    pac_direction action;
+    uint8_t ghost_count;
+    uint8_t ghost_order[4];
+    uint8_t reserved[2];
+} pac_simulation_input;
+
+typedef struct pac_simulation_result {
+    uint64_t score_gained;
+    uint32_t survival_horizon;
+    uint32_t pacgums_eaten;
+    uint32_t power_pellets_eaten;
+    uint32_t ghosts_eaten;
+    uint32_t remaining_power_ticks;
+    uint32_t path_length;
+    uint8_t died;
+    uint8_t reserved[3];
+} pac_simulation_result;
 
 typedef struct pac_topology pac_topology;
 
@@ -138,6 +172,11 @@ PAC_API pac_status pac_topology_evaluate_actions(
     size_t threat_capacity, pac_action_evaluation *actions,
     size_t action_capacity, uint16_t *reachable, size_t reachable_capacity,
     size_t *action_count);
+
+/* Return the best terminal branch for one first action. Caller owns path. */
+PAC_API pac_status pac_topology_simulate_action(
+    pac_topology *topology, const pac_simulation_input *input,
+    pac_simulation_result *result, uint16_t *path, size_t path_capacity);
 
 /* One-shot graph-walking BFS retained for measured comparisons. */
 PAC_API pac_status pac_bfs_distances_graph(const pac_tile_neighbors *tiles,

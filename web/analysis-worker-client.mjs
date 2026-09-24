@@ -89,6 +89,43 @@ export class WasmAnalysisWorker {
         return { threatEtas, actions };
     }
 
+    async simulateAction(
+        collectibles, predictionGrid, ghostOrder, origin, action, horizon,
+        pacgumScore = 10, powerPelletScore = 50, frightenedTicks = 8,
+        comboScores = [200, 400, 800, 1600],
+    ) {
+        if (collectibles.byteLength !== this.tileCount ||
+            predictionGrid.byteLength !== (horizon + 1) * 4 * this.tileCount) {
+            throw new RangeError("Simulation buffers do not match the maze and horizon");
+        }
+        const sharedItems = new SharedArrayBuffer(collectibles.byteLength);
+        const sharedGrid = new SharedArrayBuffer(predictionGrid.byteLength);
+        new Uint8Array(sharedItems).set(collectibles);
+        new Uint8Array(sharedGrid).set(predictionGrid);
+        const output = new SharedArrayBuffer(40 + (horizon + 1) * 2);
+        if (!await this.request({
+            kind: "simulate", collectibles: sharedItems, predictionGrid: sharedGrid,
+            ghostOrder, origin, action, horizon, pacgumScore, powerPelletScore,
+            frightenedTicks, comboScores, output,
+        })) {
+            throw new Error("WASM branch simulation failed");
+        }
+        const view = new DataView(output);
+        const pathLength = view.getUint32(28, true);
+        if (pathLength > horizon + 1) throw new Error("WASM returned an invalid path");
+        return {
+            scoreGained: Number(view.getBigUint64(0, true)),
+            survivalHorizon: view.getUint32(8, true),
+            pacgumsEaten: view.getUint32(12, true),
+            powerPelletsEaten: view.getUint32(16, true),
+            ghostsEaten: view.getUint32(20, true),
+            remainingPowerTicks: view.getUint32(24, true),
+            died: Boolean(view.getUint8(32)),
+            path: Array.from({ length: pathLength }, (_, index) =>
+                view.getUint16(40 + index * 2, true)),
+        };
+    }
+
     async close() {
         await this.request({ kind: "close" });
         await this.worker.terminate();

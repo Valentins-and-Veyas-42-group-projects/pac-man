@@ -32,7 +32,7 @@ if is_plat("wasm") then
 		"-sEXPORT_ES6=1",
 		"-sEXPORT_NAME=createPacmanNative",
 		"-sALLOW_MEMORY_GROWTH=1",
-		"-sEXPORTED_FUNCTIONS=['_malloc','_free','_pac_abi_version','_pac_bitboard_or','_pac_bfs_distances','_pac_topology_create','_pac_topology_destroy','_pac_topology_bfs_distances','_pac_topology_bfs_distances_graph','_pac_topology_bfs_distances_masked','_pac_topology_bfs_many','_pac_topology_analyze_distances','_pac_topology_threat_field','_pac_topology_predict_threat','_pac_topology_evaluate_actions']",
+		"-sEXPORTED_FUNCTIONS=['_malloc','_free','_pac_abi_version','_pac_bitboard_or','_pac_bfs_distances','_pac_topology_create','_pac_topology_destroy','_pac_topology_bfs_distances','_pac_topology_bfs_distances_graph','_pac_topology_bfs_distances_masked','_pac_topology_bfs_many','_pac_topology_analyze_distances','_pac_topology_threat_field','_pac_topology_predict_threat','_pac_topology_evaluate_actions','_pac_topology_simulate_action']",
 		"-sEXPORTED_RUNTIME_METHODS=['HEAPU8','HEAPU32']",
 		{ force = true }
 	)
@@ -45,6 +45,7 @@ if is_plat("wasm") then
 	set_toolset("cxx", "clangxx@tools/emscripten/clang++")
 	set_policy("build.c++.modules.fallbackscanner", true)
 	add_includedirs("native/include", "native/src")
+	add_files("native/abi/**.cpp")
 	add_files("native/src/**.cppm")
 	add_files("native/kernels/scalar/**.cppm")
 	add_files("native/tests/**.cpp")
@@ -93,6 +94,7 @@ else
 				"pac_topology_threat_field",
 				"pac_topology_predict_threat",
 				"pac_topology_evaluate_actions",
+				"pac_topology_simulate_action",
 			},
 		}
 	)
@@ -103,5 +105,6 @@ else
 	add_deps("pacman-core")
 	add_rules("plugin.compile_commands.autoupdate", { outputdir = ".build", lsp = "clangd" })
 	add_includedirs("native/include")
+	add_files("native/abi/**.cpp")
 	add_files("native/tests/**.cpp")
 end

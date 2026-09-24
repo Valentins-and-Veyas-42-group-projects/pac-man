@@ -262,6 +262,72 @@ function topologyEvaluateActions(topology, tileCount, playerTile, threatEtas) {
     }
 }
 
+function topologySimulateAction(
+    topology, tileCount, collectibles, predictionGrid, ghostOrder,
+    origin, action, horizon, pacgumScore, powerPelletScore,
+    frightenedTicks, comboScores,
+) {
+    if (collectibles.length !== tileCount ||
+        predictionGrid.length !== (horizon + 1) * 4 * tileCount ||
+        ghostOrder.length > 4 || horizon < 1) return null;
+    const itemPointer = module._malloc(tileCount);
+    const gridPointer = module._malloc(predictionGrid.length);
+    const comboPointer = module._malloc(Math.max(1, comboScores.length * 4));
+    const inputPointer = module._malloc(56);
+    const resultPointer = module._malloc(40);
+    const pathPointer = module._malloc((horizon + 1) * 2);
+    const pointers = [itemPointer, gridPointer, comboPointer, inputPointer, resultPointer, pathPointer];
+    if (pointers.some((pointer) => !pointer)) {
+        for (const pointer of pointers) module._free(pointer);
+        return null;
+    }
+    try {
+        module.HEAPU8.set(collectibles, itemPointer);
+        module.HEAPU8.set(predictionGrid, gridPointer);
+        module.HEAPU32.set(comboScores, comboPointer / 4);
+        const view = new DataView(module.HEAPU8.buffer);
+        view.setUint32(inputPointer, itemPointer, true);
+        view.setUint32(inputPointer + 4, tileCount, true);
+        view.setUint32(inputPointer + 8, gridPointer, true);
+        view.setUint32(inputPointer + 12, predictionGrid.length, true);
+        view.setUint32(inputPointer + 16, comboPointer, true);
+        view.setUint32(inputPointer + 20, comboScores.length, true);
+        view.setUint32(inputPointer + 24, horizon, true);
+        view.setUint32(inputPointer + 28, 4096, true);
+        view.setUint32(inputPointer + 32, pacgumScore, true);
+        view.setUint32(inputPointer + 36, powerPelletScore, true);
+        view.setUint32(inputPointer + 40, frightenedTicks, true);
+        view.setUint16(inputPointer + 44, origin, true);
+        view.setUint8(inputPointer + 46, action);
+        view.setUint8(inputPointer + 47, ghostOrder.length);
+        for (let index = 0; index < 4; index += 1) {
+            view.setUint8(inputPointer + 48 + index, ghostOrder[index] ?? 0);
+        }
+        view.setUint16(inputPointer + 52, 0, true);
+        const status = module._pac_topology_simulate_action(
+            topology, inputPointer, resultPointer, pathPointer, horizon + 1,
+        );
+        if (status !== 0) return null;
+        const output = new DataView(module.HEAPU8.buffer);
+        const pathLength = output.getUint32(resultPointer + 28, true);
+        const score = output.getBigUint64(resultPointer, true);
+        if (pathLength > horizon + 1 || score > BigInt(Number.MAX_SAFE_INTEGER)) return null;
+        return {
+            scoreGained: Number(score),
+            survivalHorizon: output.getUint32(resultPointer + 8, true),
+            pacgumsEaten: output.getUint32(resultPointer + 12, true),
+            powerPelletsEaten: output.getUint32(resultPointer + 16, true),
+            ghostsEaten: output.getUint32(resultPointer + 20, true),
+            remainingPowerTicks: output.getUint32(resultPointer + 24, true),
+            died: Boolean(output.getUint8(resultPointer + 32)),
+            path: Array.from({ length: pathLength }, (_, index) =>
+                output.getUint16(pathPointer + index * 2, true)),
+        };
+    } finally {
+        for (const pointer of pointers) module._free(pointer);
+    }
+}
+
 globalThis.pacmanWasm = Object.freeze({
     abiVersion: () => module._pac_abi_version(),
     bfsDistances,
@@ -272,6 +338,7 @@ globalThis.pacmanWasm = Object.freeze({
     topologyThreatField,
     topologyPredictThreat,
     topologyEvaluateActions,
+    topologySimulateAction,
 });
 
 export default globalThis.pacmanWasm;

@@ -32,6 +32,31 @@ function handle(message) {
             reply({ id, ok: true });
             return;
         }
+        if (kind === "simulate" && topology) {
+            const result = engine.topologySimulateAction(
+                topology, tileCount, new Uint8Array(message.collectibles),
+                new Uint8Array(message.predictionGrid), message.ghostOrder,
+                message.origin, message.action, message.horizon,
+                message.pacgumScore, message.powerPelletScore,
+                message.frightenedTicks, message.comboScores,
+            );
+            if (!result) {
+                reply({ id, ok: false });
+                return;
+            }
+            const view = new DataView(message.output);
+            view.setBigUint64(0, BigInt(result.scoreGained), true);
+            view.setUint32(8, result.survivalHorizon, true);
+            view.setUint32(12, result.pacgumsEaten, true);
+            view.setUint32(16, result.powerPelletsEaten, true);
+            view.setUint32(20, result.ghostsEaten, true);
+            view.setUint32(24, result.remainingPowerTicks, true);
+            view.setUint32(28, result.path.length, true);
+            view.setUint8(32, result.died ? 1 : 0);
+            result.path.forEach((tile, index) => view.setUint16(40 + index * 2, tile, true));
+            reply({ id, ok: true });
+            return;
+        }
         if (kind !== "analyze" || !topology) {
             reply({ id, ok: false });
             return;

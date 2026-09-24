@@ -23,12 +23,16 @@ bool test_collectibles() {
     const std::array items{collectible::none, collectible::pacgum,
                            collectible::power_pellet};
     const std::array<std::uint8_t, 4 * 4 * 3> ghosts{};
+    const std::array<std::uint8_t, 4> ghost_order{0, 1, 2, 3};
     std::array<tile_index, 4> path{};
     branch_result result{};
-    const auto status = search_action(
-        {.tiles = corridor}, items,
-        {.states = ghosts, .tile_count = 3, .tick_count = 4}, 0,
-        direction::right, 3, simulation_rules{}, 32, path, result);
+    const auto status = search_action({.tiles = corridor}, items,
+                                      {.states = ghosts,
+                                       .ghost_order = ghost_order,
+                                       .tile_count = 3,
+                                       .tick_count = 4},
+                                      0, direction::right, 3,
+                                      simulation_rules{}, 32, path, result);
     return status == branch_search_status::ok && !result.best.died &&
            result.best.score_gained == 60 && result.best.tick == 3 &&
            result.best.pacgums_eaten == 1 &&
@@ -40,13 +44,17 @@ bool test_contact() {
     const std::array items{collectible::none, collectible::none,
                            collectible::none};
     std::array<std::uint8_t, 2 * 4 * 3> ghosts{};
+    const std::array<std::uint8_t, 4> ghost_order{0, 1, 2, 3};
     ghosts[(1 * 4) * 3 + 1] = 1;
     std::array<tile_index, 2> path{};
     branch_result result{};
-    const auto status =
-        search_action({.tiles = corridor}, items,
-                      {.states = ghosts, .tile_count = 3, .tick_count = 2}, 0,
-                      direction::right, 1, simulation_rules{}, 8, path, result);
+    const auto status = search_action({.tiles = corridor}, items,
+                                      {.states = ghosts,
+                                       .ghost_order = ghost_order,
+                                       .tile_count = 3,
+                                       .tick_count = 2},
+                                      0, direction::right, 1,
+                                      simulation_rules{}, 8, path, result);
     return status == branch_search_status::ok && result.best.died &&
            result.path_length == 2 && path[0] == 0 && path[1] == 1;
 }

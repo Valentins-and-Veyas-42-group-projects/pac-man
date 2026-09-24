@@ -9,15 +9,17 @@ from typed_errs import Nothing, Option, Some
 
 from pacman.analyze.distance_backend import (
     AcceleratedAction,
+    AcceleratedSimulation,
     AcceleratedThreatAnalysis,
     AcceleratedThreatField,
     GhostOriginLike,
     PredictedGhostOrigin,
+    PreparedSimulation,
 )
 from pacman.analyze.models import MazeGraph
 from pacman.replay.models import Direction, TileIndex
 
-PACMAN_ABI_VERSION = 2
+PACMAN_ABI_VERSION = 3
 MOVES_PER_TILE = 4
 MOVE_SIZE = 4
 TILE_SIZE = MOVES_PER_TILE * MOVE_SIZE + 2
@@ -56,6 +58,19 @@ class WasmAction(Protocol):
     safeIntersections: int  # noqa: N815
     horizonTicks: int  # noqa: N815
     minimumMargin: int | None  # noqa: N815
+
+
+class WasmSimulationResult(Protocol):
+    """Best terminal branch returned by the browser bridge."""
+
+    scoreGained: int  # noqa: N815
+    survivalHorizon: int  # noqa: N815
+    pacgumsEaten: int  # noqa: N815
+    powerPelletsEaten: int  # noqa: N815
+    ghostsEaten: int  # noqa: N815
+    remainingPowerTicks: int  # noqa: N815
+    died: bool
+    path: WasmDistances
 
 
 class WasmBridge(Protocol):
@@ -120,6 +135,24 @@ class WasmBridge(Protocol):
         self, topology: int, tile_count: int, player_tile: int, threat_etas: list[int]
     ) -> list[WasmAction] | None:
         """Evaluate safe first moves with the cached topology."""
+        ...
+
+    def topologySimulateAction(  # noqa: N802
+        self,
+        topology: int,
+        tile_count: int,
+        collectibles: list[int],
+        prediction_grid: list[int],
+        ghost_order: list[int],
+        origin: int,
+        action: int,
+        horizon: int,
+        pacgum_score: int,
+        power_pellet_score: int,
+        frightened_ticks: int,
+        combo_scores: list[int],
+    ) -> WasmSimulationResult | None:
+        """Search one bounded continuation in the shared WASM core."""
         ...
 
 
@@ -313,6 +346,48 @@ class WasmPathfinding:
                         minimum_margin=Some(int(item.minimumMargin)) if item.minimumMargin is not None else Nothing(),
                     )
                     for item in result
+                )
+            )
+        except Exception:
+            return Nothing()
+
+    def simulate_action(
+        self, graph: MazeGraph, prepared: PreparedSimulation, direction: Direction
+    ) -> Option[AcceleratedSimulation]:
+        """Return the best WASM branch, or Nothing for Python fallback."""
+        try:
+            topology = self._topology_for(graph)
+            if isinstance(topology, Nothing):
+                return Nothing()
+            result = self._bridge.topologySimulateAction(
+                topology.value,
+                len(graph.moves),
+                list(prepared.collectibles),
+                list(prepared.prediction_grid),
+                list(prepared.ghost_order),
+                int(prepared.origin),
+                int(direction),
+                prepared.horizon,
+                prepared.pacgum_score,
+                prepared.power_pellet_score,
+                prepared.frightened_ticks,
+                list(prepared.ghost_combo_scores),
+            )
+            if result is None:
+                return Nothing()
+            path = tuple(TileIndex(int(tile)) for tile in result.path)
+            if len(path) > prepared.horizon + 1:
+                return Nothing()
+            return Some(
+                AcceleratedSimulation(
+                    died=bool(result.died),
+                    survival_horizon=int(result.survivalHorizon),
+                    score_gained=int(result.scoreGained),
+                    pacgums_eaten=int(result.pacgumsEaten),
+                    power_pellets_eaten=int(result.powerPelletsEaten),
+                    ghosts_eaten=int(result.ghostsEaten),
+                    remaining_power_ticks=int(result.remainingPowerTicks),
+                    path=path,
                 )
             )
         except Exception:

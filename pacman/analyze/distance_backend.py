@@ -75,6 +75,35 @@ class AcceleratedAction:
     minimum_margin: Option[int]
 
 
+@dataclass(frozen=True, slots=True)
+class PreparedSimulation:
+    """Flat branch inputs shared by native and WASM backends."""
+
+    collectibles: bytes
+    prediction_grid: bytes
+    ghost_order: tuple[int, ...]
+    origin: TileIndex
+    horizon: int
+    pacgum_score: int
+    power_pellet_score: int
+    frightened_ticks: int
+    ghost_combo_scores: tuple[int, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class AcceleratedSimulation:
+    """Best terminal branch returned by a compact engine."""
+
+    died: bool
+    survival_horizon: int
+    score_gained: int
+    pacgums_eaten: int
+    power_pellets_eaten: int
+    ghosts_eaten: int
+    remaining_power_ticks: int
+    path: tuple[TileIndex, ...]
+
+
 class DistanceBackend(Protocol):
     """Small contract shared by optional distance implementations."""
 
@@ -131,6 +160,17 @@ class OptionsBackend(Protocol):
         self, graph: MazeGraph, player_tile: TileIndex, threat_etas: tuple[int, ...]
     ) -> Option[tuple[AcceleratedAction, ...]]:
         """Evaluate all legal first moves."""
+        ...
+
+
+@runtime_checkable
+class SimulationBackend(Protocol):
+    """Optional bounded branch search implemented by an accelerator."""
+
+    def simulate_action(
+        self, graph: MazeGraph, prepared: PreparedSimulation, direction: Direction
+    ) -> Option[AcceleratedSimulation]:
+        """Return the strongest terminal branch, or Nothing on fallback."""
         ...
 
 
@@ -298,6 +338,20 @@ def accelerated_actions(
     _, backend = _accelerated_backend()
     if isinstance(backend, Some) and isinstance(backend.value, OptionsBackend):
         return backend.value.evaluate_actions(graph, player_tile, threat_etas)
+    return Nothing()
+
+
+def accelerated_simulation(
+    graph: MazeGraph, prepared: PreparedSimulation, direction: Direction
+) -> Option[AcceleratedSimulation]:
+    """Search one action through the selected backend when available.
+
+    Returns:
+        Best branch, or Nothing when the reference implementation must run.
+    """
+    _, backend = _accelerated_backend()
+    if isinstance(backend, Some) and isinstance(backend.value, SimulationBackend):
+        return backend.value.simulate_action(graph, prepared, direction)
     return Nothing()
 
 

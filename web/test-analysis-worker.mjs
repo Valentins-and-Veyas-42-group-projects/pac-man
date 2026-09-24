@@ -29,7 +29,23 @@ try {
         horizonTicks: 2,
         minimumMargin: null,
     }]);
+    assert.deepEqual(
+        await analysis.simulateAction(
+            Uint8Array.from([0, 1, 2]), new Uint8Array(4 * 4 * 3),
+            [], 0, 1, 3,
+        ),
+        {
+            scoreGained: 60,
+            survivalHorizon: 3,
+            pacgumsEaten: 1,
+            powerPelletsEaten: 1,
+            ghostsEaten: 0,
+            remainingPowerTicks: 7,
+            died: false,
+            path: [0, 1, 2, 1],
+        },
+    );
 } finally {
     await analysis.close();
 }
-console.log("Worker bridge: shared-memory WASM safety analysis passed");
+console.log("Worker bridge: shared-memory WASM safety and simulation passed");

@@ -48,6 +48,7 @@ struct branch_result {
 /// 2 frightened, 3 eaten. All four ghosts have one contiguous tile slice.
 struct prediction_grid {
     std::span<const std::uint8_t> states;
+    std::span<const std::uint8_t> ghost_order;
     std::size_t tile_count{};
     std::size_t tick_count{};
 
@@ -128,7 +129,7 @@ fn contacts_for(const prediction_grid prediction, const tile_index origin,
                 const tile_index destination, const std::size_t tick,
                 ghost_contact (&output)[4]) noexcept -> std::size_t {
     std::size_t count = 0;
-    for (std::size_t ghost = 0; ghost < 4; ++ghost) {
+    for (const let ghost : prediction.ghost_order) {
         let value = prediction.at(tick, ghost, destination);
         if (value == 0 && tick > 0 && prediction.at(tick, ghost, origin) != 0 &&
             prediction.at(tick - 1, ghost, destination) != 0) {
@@ -161,13 +162,17 @@ fn search_action(const graph_view graph,
                  const std::span<tile_index> best_path,
                  branch_result &result) noexcept -> branch_search_status {
     const let tile_count = graph.tiles.size();
-    if (!graph.is_valid() || !graph.contains(origin) || horizon == 0 ||
+    if (tile_count == 0 || !graph.is_valid() || !graph.contains(origin) ||
+        horizon == 0 ||
         horizon == std::numeric_limits<std::size_t>::max() ||
         state_capacity == 0 ||
-        state_capacity > std::numeric_limits<std::size_t>::max() / 4 ||
+        state_capacity >= std::numeric_limits<std::size_t>::max() / 4 ||
         initial_collectibles.size() != tile_count ||
         prediction.tile_count != tile_count ||
+        prediction.ghost_order.size() > 4 ||
         prediction.tick_count < horizon + 1 ||
+        prediction.tick_count >
+            std::numeric_limits<std::size_t>::max() / (4 * tile_count) ||
         prediction.states.size() < prediction.tick_count * 4 * tile_count ||
         best_path.size() < horizon + 1 ||
         tile_count >
@@ -175,6 +180,13 @@ fn search_action(const graph_view graph,
         horizon + 1 >
             std::numeric_limits<std::size_t>::max() / (state_capacity * 2)) {
         return branch_search_status::invalid_input;
+    }
+    std::uint8_t seen_ghosts = 0;
+    for (const let ghost : prediction.ghost_order) {
+        if (ghost >= 4 || (seen_ghosts & (1u << ghost)) != 0) {
+            return branch_search_status::invalid_input;
+        }
+        seen_ghosts |= static_cast<std::uint8_t>(1u << ghost);
     }
 
     const move *first = nullptr;

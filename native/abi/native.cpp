@@ -3,6 +3,7 @@
 
 #include <array>
 #include <atomic>
+#include <bit>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
@@ -12,12 +13,21 @@
 
 import pacman.bitboard;
 import pacman.bfs;
+import pacman.branch_search;
 import pacman.graph;
 import pacman.options;
 import pacman.prediction;
+import pacman.simulation;
 import pacman.topology;
 import pacman.threat;
 import pacman.types;
+
+#ifdef __EMSCRIPTEN__
+static_assert(sizeof(pac_simulation_input) == 56);
+static_assert(offsetof(pac_simulation_input, ghost_order) == 48);
+static_assert(sizeof(pac_simulation_result) == 40);
+static_assert(offsetof(pac_simulation_result, died) == 32);
+#endif
 
 enum class pac_bfs_kernel : std::uint8_t {
     graph,
@@ -472,6 +482,96 @@ cfn PAC_API pac_topology_evaluate_actions(
             .has_minimum_margin = static_cast<uint8_t>(item.has_minimum_margin),
         };
     }
+    return PAC_OK;
+}
+
+cfn PAC_API pac_topology_simulate_action(pac_topology *topology,
+                                         const pac_simulation_input *input,
+                                         pac_simulation_result *result,
+                                         uint16_t *path,
+                                         const size_t path_capacity)
+    -> pac_status {
+    if (topology == nullptr || input == nullptr || result == nullptr ||
+        input->collectibles == nullptr || input->prediction_grid == nullptr ||
+        (input->ghost_combo_score_count != 0 &&
+         input->ghost_combo_scores == nullptr) ||
+        (path_capacity != 0 && path == nullptr) ||
+        input->action > PAC_DIRECTION_LEFT || input->ghost_count > 4 ||
+        static_cast<size_t>(input->origin) >= topology->tile_count ||
+        input->horizon == 0 || input->state_capacity == 0 ||
+        input->horizon == std::numeric_limits<uint32_t>::max() ||
+        input->collectible_count != topology->tile_count ||
+        static_cast<size_t>(input->horizon) + 1 >
+            std::numeric_limits<size_t>::max() / (topology->tile_count * 4) ||
+        input->prediction_count != (static_cast<size_t>(input->horizon) + 1) *
+                                       4 * topology->tile_count) {
+        return PAC_INVALID_ARGUMENT;
+    }
+    if (path_capacity < static_cast<size_t>(input->horizon) + 1) {
+        return PAC_BUFFER_TOO_SMALL;
+    }
+
+    std::unique_ptr<pacman::collectible[]> collectibles{
+        new (std::nothrow) pacman::collectible[topology->tile_count]{}};
+    if (!collectibles) {
+        return PAC_INTERNAL_ERROR;
+    }
+    for (size_t tile = 0; tile < topology->tile_count; ++tile) {
+        if (input->collectibles[tile] > 2) {
+            return PAC_INVALID_ARGUMENT;
+        }
+        collectibles[tile] =
+            static_cast<pacman::collectible>(input->collectibles[tile]);
+    }
+    uint8_t seen_ghosts = 0;
+    for (size_t index = 0; index < input->ghost_count; ++index) {
+        const let ghost = input->ghost_order[index];
+        if (ghost >= 4 || (seen_ghosts & (1u << ghost)) != 0) {
+            return PAC_INVALID_ARGUMENT;
+        }
+        seen_ghosts |= static_cast<uint8_t>(1u << ghost);
+    }
+
+    pacman::branch_result searched{};
+    const let status = pacman::search_action(
+        {.tiles = {topology->tiles.get(), topology->tile_count}},
+        {collectibles.get(), topology->tile_count},
+        {.states = {input->prediction_grid, input->prediction_count},
+         .ghost_order = {input->ghost_order, input->ghost_count},
+         .tile_count = topology->tile_count,
+         .tick_count = static_cast<size_t>(input->horizon) + 1},
+        input->origin, static_cast<pacman::direction>(input->action),
+        input->horizon,
+        {.pacgum_score = input->pacgum_score,
+         .power_pellet_score = input->power_pellet_score,
+         .frightened_ticks = input->frightened_ticks,
+         .ghost_combo_scores = {input->ghost_combo_scores,
+                                input->ghost_combo_score_count}},
+        input->state_capacity, {path, path_capacity}, searched);
+    switch (status) {
+    case pacman::branch_search_status::invalid_input:
+        return PAC_INVALID_ARGUMENT;
+    case pacman::branch_search_status::out_of_memory:
+        return PAC_INTERNAL_ERROR;
+    case pacman::branch_search_status::capacity_exceeded:
+        return PAC_CAPACITY_EXCEEDED;
+    case pacman::branch_search_status::ok:
+        break;
+    }
+
+    *result = {
+        .score_gained = searched.best.score_gained,
+        .survival_horizon = static_cast<uint32_t>(searched.best.tick),
+        .pacgums_eaten = static_cast<uint32_t>(searched.best.pacgums_eaten),
+        .power_pellets_eaten =
+            static_cast<uint32_t>(searched.best.power_pellets_eaten),
+        .ghosts_eaten = static_cast<uint32_t>(
+            std::popcount(searched.best.eaten_ghost_mask)),
+        .remaining_power_ticks = searched.best.frightened_remaining,
+        .path_length = static_cast<uint32_t>(searched.path_length),
+        .died = static_cast<uint8_t>(searched.best.died),
+        .reserved = {},
+    };
     return PAC_OK;
 }
 

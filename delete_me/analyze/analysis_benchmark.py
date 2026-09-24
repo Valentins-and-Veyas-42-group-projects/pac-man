@@ -13,6 +13,7 @@ from statistics import median
 from time import perf_counter_ns
 from typing import TypedDict
 
+from pacman.analyze.collectibles import reconstruct_collectibles
 from pacman.analyze.decision import analyze_decision
 from pacman.analyze.distance_backend import (
     DistanceBackendKind,
@@ -22,8 +23,10 @@ from pacman.analyze.distance_backend import (
 from pacman.analyze.maze_graph import build_maze_graph
 from pacman.analyze.models import MazeGraph
 from pacman.analyze.options import ActionEvaluation, evaluate_actions
-from pacman.analyze.prediction import build_predicted_threat_field
-from pacman.analyze.simulation import SimulationRules
+from pacman.analyze.outcomes import terminal_rank
+from pacman.analyze.prediction import build_predicted_threat_field, predict_ghost
+from pacman.analyze.simulation import SimulationRules, simulate_action
+from pacman.analyze.simulation_bridge import prepare_simulation
 from pacman.maze_loader import load_maze
 from pacman.replay.maze_codec import encode_collectibles, encode_topology
 from pacman.replay.models import (
@@ -87,8 +90,7 @@ def generate_case(
     topology = encode_topology(generated.cells).unwrap()
     setup_rng = Random(seed)
     collectibles = [
-        Collectible.POWER_PELLET if setup_rng.random() < 0.06 else Collectible.PACGUM
-        for _ in range(width * height)
+        Collectible.POWER_PELLET if setup_rng.random() < 0.06 else Collectible.PACGUM for _ in range(width * height)
     ]
     entry = generated.entry[1] * width + generated.entry[0]
     collectibles[entry] = Collectible.NONE
@@ -97,9 +99,15 @@ def generate_case(
     graph = build_maze_graph(maze).unwrap()
     last = len(graph.moves) - 1
     game = FakeGame(
-        ReplayId(1), maze, graph, Random(seed), 0.08, TileIndex(entry),
+        ReplayId(1),
+        maze,
+        graph,
+        Random(seed),
+        0.08,
+        TileIndex(entry),
         {ghost: TileIndex(max(0, last - int(ghost) * 3)) for ghost in Ghost},
-        collectibles, tuple(collectibles),
+        collectibles,
+        tuple(collectibles),
     )
     snapshots: list[Snapshot] = []
     sampled_frames: list[Frame] = []
@@ -134,16 +142,17 @@ def _action_values(action: ActionEvaluation) -> list[object]:
         Stable JSON-compatible values.
     """
     return [
-        int(action.action), int(action.first_tile),
+        int(action.action),
+        int(action.first_tile),
         [int(tile) for tile in action.reachable_tiles],
-        action.safe_tiles, action.safe_intersections, action.horizon_ticks,
+        action.safe_tiles,
+        action.safe_intersections,
+        action.horizon_ticks,
         action.minimum_margin.value if isinstance(action.minimum_margin, Some) else None,
     ]
 
 
-def analyze_snapshot(
-    maze: Maze, graph: MazeGraph, snapshot: Snapshot, horizon: int
-) -> list[object]:
+def analyze_snapshot(maze: Maze, graph: MazeGraph, snapshot: Snapshot, horizon: int) -> list[object]:
     """Run the production prediction and action-evaluation entry points.
 
     Returns:
@@ -162,6 +171,59 @@ def analyze_snapshot(
     field = build_predicted_threat_field(graph, maze, ghosts, horizon).unwrap()
     actions = evaluate_actions(graph, field, player_tile).unwrap()
     return [list(field.etas), [_action_values(action) for action in actions]]
+
+
+def simulation_cases(
+    maze: Maze,
+    graph: MazeGraph,
+    frames: tuple[Frame, ...],
+    changes: tuple[CollectibleChange, ...],
+    rules: SimulationRules,
+) -> list[dict[str, object]]:
+    """Capture exact Python branches for native/WASM parity checks.
+
+    Returns:
+        Flat worker inputs and Python reference terminal summaries.
+    """
+    cases: list[dict[str, object]] = []
+    for frame in frames:
+        origin = maze.tile_index(frame.player.position)
+        collectibles = reconstruct_collectibles(maze, changes, frame.tick).unwrap()
+        predictions = tuple(predict_ghost(graph, maze, ghost, rules.horizon_ticks).unwrap() for ghost in frame.ghosts)
+        prepared = prepare_simulation(collectibles, predictions, origin, rules).unwrap()
+        for move in graph.neighbors(origin):
+            reference = simulate_action(
+                graph,
+                collectibles,
+                predictions,
+                origin,
+                move.direction,
+                rules,
+            ).unwrap()
+            best = max(reference.terminals, key=terminal_rank)
+            cases.append({
+                "collectibles": list(prepared.collectibles),
+                "predictionGrid": list(prepared.prediction_grid),
+                "ghostOrder": list(prepared.ghost_order),
+                "origin": int(origin),
+                "action": int(move.direction),
+                "horizon": rules.horizon_ticks,
+                "pacgumScore": rules.pacgum_score,
+                "powerPelletScore": rules.power_pellet_score,
+                "frightenedTicks": rules.frightened_ticks,
+                "comboScores": list(rules.ghost_combo_scores),
+                "expected": [
+                    best.score_gained,
+                    best.tick,
+                    best.pacgums_eaten,
+                    best.power_pellets_eaten,
+                    len(best.eaten_ghosts),
+                    best.frightened_remaining,
+                    best.died,
+                    [int(tile) for tile in best.path],
+                ],
+            })
+    return cases
 
 
 def measure(operation: Callable[[], object], rounds: int, count: int) -> float:
@@ -198,17 +260,17 @@ def main() -> int:
         print("seconds, rounds, and samples must be positive; horizon must be nonnegative")
         return 2
 
-    maze, graph, snapshots, frames, changes = generate_case(
-        args.width, args.height, args.seed, args.seconds
-    )
-    decision_frames = frames[:args.decision_samples]
+    maze, graph, snapshots, frames, changes = generate_case(args.width, args.height, args.seed, args.seconds)
+    decision_frames = frames[: args.decision_samples]
     decision_rules = SimulationRules(horizon_ticks=4)
     previous_backend = os.environ.get("PACMAN_ANALYSIS_BACKEND")
     previous_library = os.environ.get("PACMAN_NATIVE_LIBRARY")
     try:
         shown = subprocess.run(
             ["xmake", "show", "-t", "pacman-native", "--format=json"],
-            capture_output=True, text=True, check=False,
+            capture_output=True,
+            text=True,
+            check=False,
         )
         if shown.returncode != 0:
             print("xmake could not report the release native library")
@@ -244,7 +306,10 @@ def main() -> int:
             def run_decisions() -> tuple[object, ...]:
                 return tuple(
                     analyze_decision(
-                        graph, maze, changes, frame,
+                        graph,
+                        maze,
+                        changes,
+                        frame,
                         graph.neighbors(maze.tile_index(frame.player.position))[0].direction,
                         decision_rules,
                     ).unwrap()
@@ -257,9 +322,7 @@ def main() -> int:
             elif decisions != expected_decisions:
                 print(f"{mode} full decision output differs from Python")
                 return 1
-            decision_timings[mode] = measure(
-                run_decisions, args.decision_rounds, len(decision_frames)
-            )
+            decision_timings[mode] = measure(run_decisions, args.decision_rounds, len(decision_frames))
     finally:
         close_distance_backend()
         if previous_backend is None:
@@ -279,6 +342,13 @@ def main() -> int:
         "width": graph.width,
         "horizon": args.horizon,
         "snapshots": snapshots,
+        "simulationCases": simulation_cases(
+            maze,
+            graph,
+            decision_frames,
+            changes,
+            decision_rules,
+        ),
     }
     print(f"FakeGame: {args.width}x{args.height}, {args.seconds}s, {len(snapshots)} sampled states", flush=True)
     print("Prediction + safe-action evaluation, median us/state (game generation excluded):", flush=True)
@@ -292,8 +362,12 @@ def main() -> int:
             print(f"could not write temporary benchmark fixture: {error}")
             return 1
         command = [
-            "node", "web/benchmark-analysis-worker.mjs", str(path),
-            str(args.rounds), digest, str(timings["python"]),
+            "node",
+            "web/benchmark-analysis-worker.mjs",
+            str(path),
+            str(args.rounds),
+            digest,
+            str(timings["python"]),
         ]
         print("WASM worker check: node web/benchmark-analysis-worker.mjs <temporary fixture>", flush=True)
         try:
@@ -307,7 +381,9 @@ def main() -> int:
     print(f"  Python reference     {decision_timings['python']:9.2f}")
     decision_speedup = decision_timings["python"] / decision_timings["native"]
     print(f"  Native C++ via Python {decision_timings['native']:9.2f}  {decision_speedup:.2f}x")
-    print("  WASM                unavailable: branch simulation has no WASM implementation")
+    print(
+        "  WASM branch search matches Python above; browser replay orchestration is not yet verified"
+    )
     print("WASM timing includes Node worker IPC; native timing includes Python/ctypes conversion.")
     return 0
 

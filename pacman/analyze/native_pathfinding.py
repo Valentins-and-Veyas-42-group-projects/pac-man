@@ -13,15 +13,17 @@ from typed_errs import Nothing, Option, Some
 
 from pacman.analyze.distance_backend import (
     AcceleratedAction,
+    AcceleratedSimulation,
     AcceleratedThreatAnalysis,
     AcceleratedThreatField,
     GhostOriginLike,
     PredictedGhostOrigin,
+    PreparedSimulation,
 )
 from pacman.analyze.models import MazeGraph
 from pacman.replay.models import Direction, TileIndex
 
-PACMAN_ABI_VERSION = 2
+PACMAN_ABI_VERSION = 3
 PAC_OK = 0
 NATIVE_UNREACHABLE = (1 << 32) - 1
 
@@ -79,6 +81,45 @@ class PacActionEvaluation(ctypes.Structure):
         ("first_tile", ctypes.c_uint16),
         ("direction", ctypes.c_uint8),
         ("has_minimum_margin", ctypes.c_uint8),
+    ]
+
+
+class PacSimulationInput(ctypes.Structure):
+    """Caller-owned buffers and rules for one bounded branch search."""
+
+    _fields_ = [
+        ("collectibles", ctypes.POINTER(ctypes.c_uint8)),
+        ("collectible_count", ctypes.c_size_t),
+        ("prediction_grid", ctypes.POINTER(ctypes.c_uint8)),
+        ("prediction_count", ctypes.c_size_t),
+        ("ghost_combo_scores", ctypes.POINTER(ctypes.c_uint32)),
+        ("ghost_combo_score_count", ctypes.c_size_t),
+        ("horizon", ctypes.c_uint32),
+        ("state_capacity", ctypes.c_uint32),
+        ("pacgum_score", ctypes.c_uint32),
+        ("power_pellet_score", ctypes.c_uint32),
+        ("frightened_ticks", ctypes.c_uint32),
+        ("origin", ctypes.c_uint16),
+        ("action", ctypes.c_uint8),
+        ("ghost_count", ctypes.c_uint8),
+        ("ghost_order", ctypes.c_uint8 * 4),
+        ("reserved", ctypes.c_uint8 * 2),
+    ]
+
+
+class PacSimulationResult(ctypes.Structure):
+    """Fixed-width summary of the strongest terminal branch."""
+
+    _fields_ = [
+        ("score_gained", ctypes.c_uint64),
+        ("survival_horizon", ctypes.c_uint32),
+        ("pacgums_eaten", ctypes.c_uint32),
+        ("power_pellets_eaten", ctypes.c_uint32),
+        ("ghosts_eaten", ctypes.c_uint32),
+        ("remaining_power_ticks", ctypes.c_uint32),
+        ("path_length", ctypes.c_uint32),
+        ("died", ctypes.c_uint8),
+        ("reserved", ctypes.c_uint8 * 3),
     ]
 
 
@@ -186,6 +227,14 @@ class NativePathfinding:
             ctypes.POINTER(ctypes.c_size_t),
         ]
         library.pac_topology_evaluate_actions.restype = ctypes.c_int
+        library.pac_topology_simulate_action.argtypes = [
+            ctypes.c_void_p,
+            ctypes.POINTER(PacSimulationInput),
+            ctypes.POINTER(PacSimulationResult),
+            ctypes.POINTER(ctypes.c_uint16),
+            ctypes.c_size_t,
+        ]
+        library.pac_topology_simulate_action.restype = ctypes.c_int
         self._topologies: dict[int, tuple[MazeGraph, ctypes.c_void_p]] = {}
         self._topology_lock = threading.Lock()
 
@@ -515,6 +564,61 @@ class NativePathfinding:
                 )
             )
         except Exception:
+            return Nothing()
+
+    def simulate_action(
+        self, graph: MazeGraph, prepared: PreparedSimulation, direction: Direction
+    ) -> Option[AcceleratedSimulation]:
+        """Return the best native branch, or Nothing when Python must search."""
+        if len(prepared.collectibles) != len(graph.moves) or prepared.horizon < 1:
+            return Nothing()
+        try:
+            topology = self._topology_for(graph)
+            if isinstance(topology, Nothing):
+                return Nothing()
+            collectible_bytes = (ctypes.c_uint8 * len(prepared.collectibles)).from_buffer_copy(prepared.collectibles)
+            prediction_bytes = (ctypes.c_uint8 * len(prepared.prediction_grid)).from_buffer_copy(
+                prepared.prediction_grid
+            )
+            combo_scores = (ctypes.c_uint32 * len(prepared.ghost_combo_scores))(*prepared.ghost_combo_scores)
+            request = PacSimulationInput(
+                collectible_bytes,
+                len(collectible_bytes),
+                prediction_bytes,
+                len(prediction_bytes),
+                combo_scores,
+                len(combo_scores),
+                prepared.horizon,
+                4096,
+                prepared.pacgum_score,
+                prepared.power_pellet_score,
+                prepared.frightened_ticks,
+                int(prepared.origin),
+                int(direction),
+                len(prepared.ghost_order),
+                (ctypes.c_uint8 * 4)(*prepared.ghost_order),
+                (ctypes.c_uint8 * 2)(),
+            )
+            path = (ctypes.c_uint16 * (prepared.horizon + 1))()
+            result = PacSimulationResult()
+            status = self._library.pac_topology_simulate_action(
+                topology.value, ctypes.byref(request), ctypes.byref(result), path, len(path)
+            )
+            if status != PAC_OK or result.path_length > len(path):
+                return Nothing()
+            return Some(
+                AcceleratedSimulation(
+                    died=bool(result.died),
+                    survival_horizon=result.survival_horizon,
+                    score_gained=result.score_gained,
+                    pacgums_eaten=result.pacgums_eaten,
+                    power_pellets_eaten=result.power_pellets_eaten,
+                    ghosts_eaten=result.ghosts_eaten,
+                    remaining_power_ticks=result.remaining_power_ticks,
+                    path=tuple(TileIndex(path[index]) for index in range(result.path_length)),
+                )
+            )
+        except (AttributeError, MemoryError, OverflowError, TypeError, ValueError):
             return Nothing()
 
     def close(self) -> None:

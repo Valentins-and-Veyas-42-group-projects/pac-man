@@ -1,4 +1,5 @@
 /** Time the real WASM worker on snapshots from the Python FakeGame. */
+import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { Worker } from "node:worker_threads";
@@ -68,6 +69,44 @@ try {
     const middle = Math.floor(samples.length / 2);
     const median = samples.length % 2 ? samples[middle] : (samples[middle - 1] + samples[middle]) / 2;
     console.log(`  WASM Web Worker    ${median.toFixed(2).padStart(9)}  ${(pythonUs / median).toFixed(2)}x, matches Python`);
+
+    const simulationCases = fixture.simulationCases ?? [];
+    if (simulationCases.length) {
+        async function runSimulations() {
+            const results = [];
+            for (const item of simulationCases) {
+                const result = await analysis.simulateAction(
+                    Uint8Array.from(item.collectibles), Uint8Array.from(item.predictionGrid),
+                    item.ghostOrder, item.origin, item.action, item.horizon,
+                    item.pacgumScore, item.powerPelletScore, item.frightenedTicks,
+                    item.comboScores,
+                );
+                results.push([
+                    result.scoreGained, result.survivalHorizon, result.pacgumsEaten,
+                    result.powerPelletsEaten, result.ghostsEaten,
+                    result.remainingPowerTicks, result.died, result.path,
+                ]);
+            }
+            return results;
+        }
+        const actualSimulations = await runSimulations();
+        const expectedSimulations = simulationCases.map((item) => item.expected);
+        assert.deepEqual(actualSimulations, expectedSimulations);
+        const simulationSamples = [];
+        for (let round = 0; round < rounds; round += 1) {
+            const started = process.hrtime.bigint();
+            await runSimulations();
+            simulationSamples.push(
+                Number(process.hrtime.bigint() - started) / simulationCases.length / 1_000,
+            );
+        }
+        simulationSamples.sort((left, right) => left - right);
+        const middleIndex = Math.floor(simulationSamples.length / 2);
+        const simulationMedian = simulationSamples.length % 2
+            ? simulationSamples[middleIndex]
+            : (simulationSamples[middleIndex - 1] + simulationSamples[middleIndex]) / 2;
+        console.log(`  WASM branch search ${simulationMedian.toFixed(2).padStart(9)} us/action, ${simulationCases.length} actions match Python`);
+    }
 } finally {
     await analysis.close();
 }
