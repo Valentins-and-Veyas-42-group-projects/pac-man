@@ -17,7 +17,7 @@ MYPY = uv run mypy
 PYTEST = uv run pytest
 TY = uv run ty
 
-.PHONY: all install run debug clean lint lint-strict test typecheck native native-test native-sanitize native-benchmark prediction-benchmark wasm wasm-test package
+.PHONY: all install run debug clean lint lint-strict test typecheck native native-test native-sanitize native-benchmark prediction-benchmark analysis-benchmark wasm wasm-test package
 
 all: install $(CPP_TARGET)
 
@@ -73,6 +73,13 @@ prediction-benchmark:
 	xmake f -c -m release --toolchain=clang
 	xmake build pacman-native
 	$(VENV_PYTHON) -m delete_me.analyze.prediction_benchmark
+
+analysis-benchmark:
+	xmake f -c -p wasm -a wasm32 -m release
+	xmake build pacman-wasm
+	xmake f -c -m release --toolchain=clang
+	xmake build -r pacman-native
+	$(VENV_PYTHON) -m delete_me.analyze.analysis_benchmark $(BENCH_ARGS)
 
 wasm-test:
 	xmake f -c -p wasm -a wasm32 -m release

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import atexit
+import os
 from dataclasses import dataclass
 from enum import Enum
 from functools import lru_cache
@@ -161,28 +162,33 @@ def _accelerated_backend() -> tuple[DistanceBackendKind, Option[DistanceBackend]
         The loaded backend, or ``Nothing`` when native code is unavailable.
     """
     global _backend_for_cleanup
+    requested = os.environ.get("PACMAN_ANALYSIS_BACKEND", "auto")
+    if requested == "python":
+        return DistanceBackendKind.PYTHON, Nothing()
 
-    try:
-        from pacman.analyze.wasm_pathfinding import load_wasm_pathfinding
+    if requested in ("auto", "wasm"):
+        try:
+            from pacman.analyze.wasm_pathfinding import load_wasm_pathfinding
 
-        loaded_wasm = load_wasm_pathfinding()
-        if isinstance(loaded_wasm, Some):
-            backend = cast(DistanceBackend, loaded_wasm.value)
-            _backend_for_cleanup = Some(backend)
-            return DistanceBackendKind.WASM, Some(backend)
-    except (ImportError, OSError):
-        pass
+            loaded_wasm = load_wasm_pathfinding()
+            if isinstance(loaded_wasm, Some):
+                backend = cast(DistanceBackend, loaded_wasm.value)
+                _backend_for_cleanup = Some(backend)
+                return DistanceBackendKind.WASM, Some(backend)
+        except (ImportError, OSError):
+            pass
 
-    try:
-        from pacman.analyze.native_pathfinding import load_native_pathfinding
+    if requested in ("auto", "native"):
+        try:
+            from pacman.analyze.native_pathfinding import load_native_pathfinding
 
-        loaded = load_native_pathfinding()
-        if isinstance(loaded, Some):
-            backend = cast(DistanceBackend, loaded.value)
-            _backend_for_cleanup = Some(backend)
-            return DistanceBackendKind.NATIVE, Some(backend)
-    except (ImportError, OSError):
-        pass
+            loaded = load_native_pathfinding()
+            if isinstance(loaded, Some):
+                backend = cast(DistanceBackend, loaded.value)
+                _backend_for_cleanup = Some(backend)
+                return DistanceBackendKind.NATIVE, Some(backend)
+        except (ImportError, OSError):
+            pass
     return DistanceBackendKind.PYTHON, Nothing()
 
 
