@@ -13,12 +13,14 @@ struct prediction_fixture {
     std::array<std::uint32_t, 3> arrivals{};
     std::array<pacman::prediction_state, 12> current{};
     std::array<pacman::prediction_state, 12> next{};
+    std::array<std::uint32_t, 12> seen{};
 
     fn workspace() noexcept -> pacman::prediction_workspace {
         return {
             .earliest_arrival = arrivals,
             .current = current,
             .next = next,
+            .seen = seen,
         };
     }
 };

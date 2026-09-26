@@ -18,6 +18,16 @@ import pacman.graph;
 import pacman.simulation;
 import pacman.types;
 
+/*
+    Branch search keeps the collectible bitset for exact state comparisons,
+    but updates an XOR fingerprint only when a collectible is consumed.
+    Hash matches are still checked against the full bitset.
+
+    Frontier slots alternate between two buffers and are overwritten each
+    tick. Persistent trace nodes preserve ancestry without copying each path;
+    only the winning path is reconstructed at the end.
+*/
+
 export namespace pacman {
 
 /*
@@ -44,14 +54,13 @@ struct branch_result {
     std::size_t path_length{};
 };
 
-/// Ghost state at (tick, ghost, tile): 0 absent, 1 dangerous,
-/// 2 frightened, 3 eaten. All four ghosts have one contiguous tile slice.
 struct prediction_grid {
     std::span<const std::uint8_t> states;
     std::span<const std::uint8_t> ghost_order;
     std::size_t tile_count{};
     std::size_t tick_count{};
 
+    /// Return the ghost state at one tick, ghost index, and tile.
     [[nodiscard]]
     fn at(const std::size_t tick, const std::size_t ghost,
           const tile_index tile) const noexcept -> std::uint8_t {
@@ -65,30 +74,45 @@ namespace pacman::detail {
 
 struct branch_slot {
     simulation_state state{};
+    // XORing consumed-tile fingerprints avoids rescanning the bitset per child.
+    std::uint64_t collectible_hash{};
+    std::size_t trace{};
+};
+
+struct trace_node {
+    // Frontier slots are reused, so path ancestry must outlive each frontier.
+    std::size_t parent{};
+    tile_index tile{};
 };
 
 [[nodiscard]]
-fn hash_branch(const simulation_state &state,
-               const std::span<const std::uint64_t> consumed) noexcept
-    -> std::size_t {
-    std::size_t hash = 2166136261u;
-    const let mix = [&hash](const std::size_t value) noexcept {
+fn hash_branch(const branch_slot &slot) noexcept -> std::size_t {
+    std::uint64_t hash = slot.collectible_hash ^ 1469598103934665603ull;
+    const let mix = [&hash](const std::uint64_t value) noexcept {
         hash ^= value;
-        hash *= 16777619u;
+        hash *= 1099511628211ull;
     };
+    const let &state = slot.state;
     mix(state.tile);
-    mix(static_cast<std::size_t>(state.heading));
+    mix(static_cast<std::uint64_t>(state.heading));
     mix(state.tick);
     mix(state.frightened_remaining);
     mix(state.ghost_combo);
     mix(state.eaten_ghost_mask);
     mix(state.died);
-    for (const let word : consumed) {
-        mix(static_cast<std::size_t>(word));
-    }
-    return hash;
+    return static_cast<std::size_t>(hash);
 }
 
+[[nodiscard]]
+constexpr fn collectible_fingerprint(const std::size_t id) noexcept
+    -> std::uint64_t {
+    std::uint64_t value = static_cast<std::uint64_t>(id) + 0x9e3779b97f4a7c15ull;
+    value = (value ^ (value >> 30)) * 0xbf58476d1ce4e5b9ull;
+    value = (value ^ (value >> 27)) * 0x94d049bb133111ebull;
+    return value ^ (value >> 31);
+}
+
+// Hashes filter candidates; same_branch still checks exact state equality.
 [[nodiscard]]
 fn same_branch(const simulation_state &lhs, const simulation_state &rhs,
                const std::span<const std::uint64_t> lhs_consumed,
@@ -150,9 +174,11 @@ fn contacts_for(const prediction_grid prediction, const tile_index origin,
 
 export namespace pacman {
 
-/// Search every bounded continuation after one required legal first action.
-/// State capacity is a resource limit; callers can retry or use Python on
-/// `capacity_exceeded`. The best path is written into caller-owned storage.
+/// Search continuations after the required first action.
+///
+/// On success, writes the best terminal state to `result` and its path to
+/// `best_path`. Returns `invalid_input`, `out_of_memory`, or
+/// `capacity_exceeded` when the search cannot complete.
 [[nodiscard]]
 fn search_action(const graph_view graph,
                  const std::span<const collectible> initial_collectibles,
@@ -212,12 +238,17 @@ fn search_action(const graph_view graph,
     }
     std::unique_ptr<std::uint64_t[]> consumed{
         new (std::nothrow) std::uint64_t[slots_count * consumed_words]{}};
-    std::unique_ptr<tile_index[]> paths{
-        new (std::nothrow) tile_index[slots_count * (horizon + 1)]{}};
+    if (horizon > (std::numeric_limits<std::size_t>::max() - 2) /
+                      (state_capacity * 4)) {
+        return branch_search_status::invalid_input;
+    }
+    const let trace_capacity = horizon * state_capacity * 4 + 2;
+    std::unique_ptr<detail::trace_node[]> traces{
+        new (std::nothrow) detail::trace_node[trace_capacity]{}};
     const let table_size = state_capacity * 4 + 1;
     std::unique_ptr<std::size_t[]> table{new (std::nothrow)
                                              std::size_t[table_size]{}};
-    if (!slots || !consumed || !paths || !table) {
+    if (!slots || !consumed || !traces || !table) {
         return branch_search_status::out_of_memory;
     }
 
@@ -225,10 +256,8 @@ fn search_action(const graph_view graph,
         return std::span<std::uint64_t>{
             consumed.get() + slot * consumed_words, consumed_words};
     };
-    const let path_span = [&](const std::size_t slot) noexcept {
-        return std::span<tile_index>{paths.get() + slot * (horizon + 1),
-                                     horizon + 1};
-    };
+    const let no_trace = std::numeric_limits<std::size_t>::max();
+    traces[0] = {.parent = no_trace, .tile = origin};
     ghost_contact contact_buffer[4]{};
     const let first_contacts = detail::contacts_for(
         prediction, origin, first->destination, 1, contact_buffer);
@@ -238,8 +267,17 @@ fn search_action(const graph_view graph,
                                   rules, consumed_span(0), slots[0].state)) {
         return branch_search_status::invalid_input;
     }
-    path_span(0)[0] = origin;
-    path_span(0)[1] = first->destination;
+    slots[0].collectible_hash = 0;
+    const let first_word = static_cast<std::size_t>(first->destination) / 64;
+    const let first_bit = std::uint64_t{1} << (first->destination % 64);
+    if (initial_collectibles[first->destination] != collectible::none &&
+        (consumed[0 * consumed_words + first_word] & first_bit) != 0) {
+        slots[0].collectible_hash ^=
+            detail::collectible_fingerprint(first->destination);
+    }
+    traces[1] = {.parent = 0, .tile = first->destination};
+    slots[0].trace = 1;
+    std::size_t trace_count = 2;
 
     std::size_t current_base = 0;
     std::size_t current_count = 1;
@@ -257,8 +295,12 @@ fn search_action(const graph_view graph,
                     detail::better_terminal(current, result.best)) {
                     result.best = current;
                     result.path_length = current.tick + 1;
-                    std::copy_n(path_span(current_slot).begin(),
-                                result.path_length, best_path.begin());
+                    let trace = slots[current_slot].trace;
+                    std::size_t path_index = result.path_length;
+                    while (trace != no_trace) {
+                        best_path[--path_index] = traces[trace].tile;
+                        trace = traces[trace].parent;
+                    }
                     has_best = true;
                 }
                 continue;
@@ -279,14 +321,26 @@ fn search_action(const graph_view graph,
                         slots[candidate_slot].state)) {
                     return branch_search_status::invalid_input;
                 }
-                let candidate_path = path_span(candidate_slot);
-                std::copy_n(path_span(current_slot).begin(), current.tick + 1,
-                            candidate_path.begin());
-                candidate_path[current.tick + 1] = candidate.destination;
+                slots[candidate_slot].collectible_hash =
+                    slots[current_slot].collectible_hash;
+                const let word = static_cast<std::size_t>(candidate.destination) / 64;
+                const let bit = std::uint64_t{1} << (candidate.destination % 64);
+                if (initial_collectibles[candidate.destination] != collectible::none &&
+                    (consumed_span(candidate_slot)[word] & bit) != 0 &&
+                    (consumed_span(current_slot)[word] & bit) == 0) {
+                    slots[candidate_slot].collectible_hash ^=
+                        detail::collectible_fingerprint(candidate.destination);
+                }
+                if (trace_count >= trace_capacity) {
+                    return branch_search_status::capacity_exceeded;
+                }
+                traces[trace_count] = {
+                    .parent = slots[current_slot].trace,
+                    .tile = candidate.destination,
+                };
+                slots[candidate_slot].trace = trace_count++;
 
-                const let hash = detail::hash_branch(
-                    slots[candidate_slot].state,
-                    consumed_span(candidate_slot));
+                const let hash = detail::hash_branch(slots[candidate_slot]);
                 let table_index = hash % table_size;
                 while (table[table_index] != 0) {
                     const let existing_slot =
@@ -302,9 +356,10 @@ fn search_action(const graph_view graph,
                             std::copy(consumed_span(candidate_slot).begin(),
                                       consumed_span(candidate_slot).end(),
                                       consumed_span(existing_slot).begin());
-                            std::copy_n(candidate_path.begin(),
-                                        current.tick + 2,
-                                        path_span(existing_slot).begin());
+                            slots[existing_slot].collectible_hash =
+                                slots[candidate_slot].collectible_hash;
+                            slots[existing_slot].trace =
+                                slots[candidate_slot].trace;
                         }
                         break;
                     }

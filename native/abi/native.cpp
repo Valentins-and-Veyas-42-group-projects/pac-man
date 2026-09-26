@@ -39,6 +39,7 @@ struct pac_topology {
     std::unique_ptr<pacman::bitboard_word[]> workspace{};
     std::unique_ptr<pacman::path_distance[]> threat_distances{};
     std::unique_ptr<pacman::prediction_state[]> prediction_states{};
+    std::unique_ptr<std::uint32_t[]> prediction_seen{};
     std::unique_ptr<std::int32_t[]> option_arrivals{};
     std::unique_ptr<pacman::tile_index[]> option_queue{};
     std::atomic_flag workspace_lock{};
@@ -260,12 +261,14 @@ cfn PAC_API pac_topology_create(const pac_tile_neighbors *tiles,
                                       pacman::path_distance[tile_count * 4]{});
     owned->prediction_states.reset(
         new (std::nothrow) pacman::prediction_state[tile_count * 8]{});
+    owned->prediction_seen.reset(new (std::nothrow) std::uint32_t[tile_count * 4]{});
     owned->option_arrivals.reset(new (std::nothrow) std::int32_t[tile_count]{});
     owned->option_queue.reset(new (std::nothrow)
                                   pacman::tile_index[tile_count]{});
     if (owned->masks == nullptr || owned->exceptional_edges == nullptr ||
         owned->workspace == nullptr || owned->threat_distances == nullptr ||
         owned->prediction_states == nullptr ||
+        owned->prediction_seen == nullptr ||
         owned->option_arrivals == nullptr || owned->option_queue == nullptr) {
         return PAC_INTERNAL_ERROR;
     }
@@ -441,7 +444,8 @@ cfn PAC_API pac_topology_predict_threat(
                                      topology->tile_count},
                 .current = {topology->prediction_states.get(), state_capacity},
                 .next = {topology->prediction_states.get() + state_capacity,
-                         state_capacity}},
+                         state_capacity},
+                .seen = {topology->prediction_seen.get(), state_capacity}},
                {.eta = {threat_eta, topology->tile_count},
                 .owners = {threat_owners, topology->tile_count}})
                ? PAC_OK

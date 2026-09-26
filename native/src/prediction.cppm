@@ -15,6 +15,12 @@ import pacman.graph;
 import pacman.threat;
 import pacman.types;
 
+/*
+    Prediction branches are unique by (tile, heading). A tile/heading pair
+    maps directly to one seen-array index, so a generation stamp replaces a
+    scan of the current frontier when rejecting duplicates.
+*/
+
 export namespace pacman {
 
 /*
@@ -46,9 +52,10 @@ struct prediction_workspace {
     std::span<std::uint32_t> earliest_arrival;
     std::span<prediction_state> current;
     std::span<prediction_state> next;
+    std::span<std::uint32_t> seen;
 };
 
-/// Return the direction opposite to the supplied heading.
+/// Return the direction opposite to `heading`.
 [[nodiscard]]
 constexpr fn opposite(const direction heading) noexcept -> direction {
     switch (heading) {
@@ -69,12 +76,14 @@ constexpr fn opposite(const direction heading) noexcept -> direction {
 namespace pacman::detail {
 
 fn append_unique(const move candidate, std::span<prediction_state> output,
-                 std::size_t &output_count) noexcept -> bool {
-    for (std::size_t index = 0; index < output_count; ++index) {
-        if (output[index].tile == candidate.destination &&
-            output[index].heading == candidate.heading) {
-            return true;
-        }
+                 std::size_t &output_count,
+                 const std::span<std::uint32_t> seen,
+                 const std::uint32_t generation) noexcept -> bool {
+    // A stamped tile/heading lookup avoids scanning the current frontier.
+    const let state_id = static_cast<std::size_t>(candidate.destination) * 4 +
+                         static_cast<std::size_t>(candidate.heading);
+    if (seen[state_id] == generation) {
+        return true;
     }
     if (output_count >= output.size()) {
         return false;
@@ -83,12 +92,15 @@ fn append_unique(const move candidate, std::span<prediction_state> output,
         .tile = candidate.destination,
         .heading = candidate.heading,
     };
+    seen[state_id] = generation;
     return true;
 }
 
 fn append_legal_moves(const graph_view graph, const prediction_state state,
                       std::span<prediction_state> output,
-                      std::size_t &output_count) noexcept -> bool {
+                      std::size_t &output_count,
+                      const std::span<std::uint32_t> seen,
+                      const std::uint32_t generation) noexcept -> bool {
     const let moves = graph.neighbors(state.tile);
     const let reverse = opposite(state.heading);
     const let has_forward =
@@ -100,7 +112,8 @@ fn append_legal_moves(const graph_view graph, const prediction_state state,
         if (has_forward && candidate.heading == reverse) {
             continue;
         }
-        if (!append_unique(candidate, output, output_count)) {
+        if (!append_unique(candidate, output, output_count, seen,
+                           generation)) {
             return false;
         }
     }
@@ -111,7 +124,8 @@ fn append_legal_moves(const graph_view graph, const prediction_state state,
 
 export namespace pacman {
 
-/// Calculate the earliest tick at which a ghost may reach every tile.
+/// Fill earliest arrival ticks for all ghost-reachable tiles through horizon.
+/// Returns false when the graph or caller-owned workspace is invalid.
 [[nodiscard]]
 fn predict_ghost(const graph_view graph, const ghost_prediction_input ghost,
                  const std::size_t horizon,
@@ -122,11 +136,13 @@ fn predict_ghost(const graph_view graph, const ghost_prediction_input ghost,
         !graph.is_valid() || !graph.contains(ghost.tile) ||
         workspace.earliest_arrival.size() != tile_count ||
         workspace.current.size() < state_capacity ||
-        workspace.next.size() < state_capacity) {
+        workspace.next.size() < state_capacity ||
+        workspace.seen.size() < state_capacity) {
         return false;
     }
 
     std::ranges::fill(workspace.earliest_arrival, no_prediction);
+    std::ranges::fill(workspace.seen.first(state_capacity), 0);
     workspace.earliest_arrival[ghost.tile] = 0;
     workspace.current[0] = {
         .tile = ghost.tile,
@@ -140,8 +156,10 @@ fn predict_ghost(const graph_view graph, const ghost_prediction_input ghost,
     for (std::size_t tick = 1; tick <= horizon; ++tick) {
         std::size_t next_count = 0;
         for (std::size_t index = 0; index < current_count; ++index) {
-            if (!detail::append_legal_moves(graph, current[index], next,
-                                            next_count)) {
+            if (!detail::append_legal_moves(
+                    graph, current[index], next, next_count,
+                    workspace.seen.first(state_capacity),
+                    static_cast<std::uint32_t>(tick))) {
                 return false;
             }
         }
@@ -160,7 +178,8 @@ fn predict_ghost(const graph_view graph, const ghost_prediction_input ghost,
     return true;
 }
 
-/// Combine bounded predictions into one earliest dangerous-arrival field.
+/// Combine ghost predictions into the earliest dangerous-arrival field.
+/// Returns false when an input, prediction, or output buffer is invalid.
 [[nodiscard]]
 fn build_predicted_threat_field(
     const graph_view graph,
