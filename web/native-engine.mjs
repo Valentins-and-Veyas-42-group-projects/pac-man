@@ -7,7 +7,7 @@ const MOVES_PER_TILE = 4;
 const TILE_SIZE = MOVE_SIZE * MOVES_PER_TILE + 2;
 const UNREACHABLE = 0xffffffff;
 
-function bfsDistances(flatMoves, tileCount, width, origin) {
+function bfsDistancesWith(flatMoves, tileCount, width, origin, masked) {
     const graphSize = tileCount * TILE_SIZE;
     const outputSize = tileCount * Uint32Array.BYTES_PER_ELEMENT;
     const graphPointer = module._malloc(graphSize);
@@ -26,14 +26,9 @@ function bfsDistances(flatMoves, tileCount, width, origin) {
             graph[index] = flatMoves[index];
         }
 
-        const status = module._pac_bfs_distances(
-            graphPointer,
-            tileCount,
-            width,
-            origin,
-            outputPointer,
-            tileCount,
-        );
+        const status = masked
+            ? module._pac_bfs_distances(graphPointer, tileCount, width, origin, outputPointer, tileCount)
+            : module._pac_bfs_distances_graph(graphPointer, tileCount, origin, outputPointer, tileCount);
         if (status !== 0) {
             return null;
         }
@@ -47,6 +42,14 @@ function bfsDistances(flatMoves, tileCount, width, origin) {
         module._free(outputPointer);
         module._free(graphPointer);
     }
+}
+
+function bfsDistances(flatMoves, tileCount, width, origin) {
+    return bfsDistancesWith(flatMoves, tileCount, width, origin, true);
+}
+
+function bfsDistancesGraph(flatMoves, tileCount, width, origin) {
+    return bfsDistancesWith(flatMoves, tileCount, width, origin, false);
 }
 
 function createTopology(flatMoves, tileCount, width) {
@@ -73,16 +76,14 @@ function createTopology(flatMoves, tileCount, width) {
     }
 }
 
-function topologyBfsDistances(topology, tileCount, origin) {
+function topologyBfsDistancesWith(topology, tileCount, origin, kernel) {
     const outputSize = tileCount * Uint32Array.BYTES_PER_ELEMENT;
     const outputPointer = module._malloc(outputSize);
     if (outputPointer === 0) {
         return null;
     }
     try {
-        const status = module._pac_topology_bfs_distances(
-            topology, origin, outputPointer, tileCount,
-        );
+        const status = kernel(topology, origin, outputPointer, tileCount);
         if (status !== 0) {
             return null;
         }
@@ -93,6 +94,44 @@ function topologyBfsDistances(topology, tileCount, origin) {
         );
     } finally {
         module._free(outputPointer);
+    }
+}
+
+function topologyBfsDistances(topology, tileCount, origin) {
+    return topologyBfsDistancesWith(topology, tileCount, origin, module._pac_topology_bfs_distances);
+}
+
+function topologyBfsDistancesGraph(topology, tileCount, origin) {
+    return topologyBfsDistancesWith(topology, tileCount, origin, module._pac_topology_bfs_distances_graph);
+}
+
+function topologyBfsDistancesMasked(topology, tileCount, origin) {
+    return topologyBfsDistancesWith(topology, tileCount, origin, module._pac_topology_bfs_distances_masked);
+}
+
+function topologyBfsMany(topology, tileCount, origins) {
+    if (!origins.length) return [];
+    const originPointer = module._malloc(origins.length * Uint16Array.BYTES_PER_ELEMENT);
+    const capacity = origins.length * tileCount;
+    const outputPointer = module._malloc(capacity * Uint32Array.BYTES_PER_ELEMENT);
+    if (!originPointer || !outputPointer) {
+        module._free(originPointer);
+        module._free(outputPointer);
+        return null;
+    }
+    try {
+        module.HEAPU16.set(origins, originPointer / 2);
+        const status = module._pac_topology_bfs_many(
+            topology, originPointer, origins.length, outputPointer, capacity,
+        );
+        if (status !== 0) return null;
+        const fields = module.HEAPU32.subarray(outputPointer / 4, outputPointer / 4 + capacity);
+        return Array.from({ length: origins.length }, (_, index) =>
+            Array.from(fields.subarray(index * tileCount, (index + 1) * tileCount),
+                (distance) => (distance === UNREACHABLE ? -1 : distance)));
+    } finally {
+        module._free(outputPointer);
+        module._free(originPointer);
     }
 }
 
@@ -331,9 +370,13 @@ function topologySimulateAction(
 globalThis.pacmanWasm = Object.freeze({
     abiVersion: () => module._pac_abi_version(),
     bfsDistances,
+    bfsDistancesGraph,
     createTopology,
     destroyTopology: (topology) => module._pac_topology_destroy(topology),
     topologyBfsDistances,
+    topologyBfsDistancesGraph,
+    topologyBfsDistancesMasked,
+    topologyBfsMany,
     topologyAnalyzeDistances,
     topologyThreatField,
     topologyPredictThreat,

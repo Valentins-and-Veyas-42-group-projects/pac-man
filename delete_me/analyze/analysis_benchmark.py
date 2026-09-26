@@ -11,12 +11,14 @@ from pathlib import Path
 from random import Random
 from statistics import median
 from time import perf_counter_ns
-from typing import TypedDict
+from typing import NamedTuple, TypedDict
 
-from pacman.analyze.collectibles import reconstruct_collectibles
+from pacman.analyze.collectibles import CollectibleField, reconstruct_collectibles
 from pacman.analyze.decision import analyze_decision
 from pacman.analyze.distance_backend import (
     DistanceBackendKind,
+    PreparedSimulation,
+    accelerated_simulation,
     active_distance_backend,
     close_distance_backend,
 )
@@ -24,7 +26,7 @@ from pacman.analyze.maze_graph import build_maze_graph
 from pacman.analyze.models import MazeGraph
 from pacman.analyze.options import ActionEvaluation, evaluate_actions
 from pacman.analyze.outcomes import terminal_rank
-from pacman.analyze.prediction import build_predicted_threat_field, predict_ghost
+from pacman.analyze.prediction import GhostPrediction, build_predicted_threat_field, predict_ghost
 from pacman.analyze.simulation import SimulationRules, simulate_action
 from pacman.analyze.simulation_bridge import prepare_simulation
 from pacman.maze_loader import load_maze
@@ -44,7 +46,7 @@ from pacman.replay.models import (
     ReplayId,
     TileIndex,
 )
-from typed_errs import Some
+from typed_errs import Nothing, Some
 
 from delete_me.analyze.pipeline_main import TICK_HZ, FakeGame
 
@@ -57,6 +59,18 @@ class Snapshot(TypedDict):
 
     playerTile: int  # noqa: N815
     ghosts: list[list[int]]
+
+
+class BranchCase(NamedTuple):
+    """Prepared inputs for comparing one required action across engines."""
+
+    collectibles: CollectibleField
+    predictions: tuple[GhostPrediction, ...]
+    origin: TileIndex
+    action: Direction
+    rules: SimulationRules
+    prepared: PreparedSimulation
+    expected: list[object]
 
 
 def encoded_graph(graph: MazeGraph) -> list[int]:
@@ -179,13 +193,14 @@ def simulation_cases(
     frames: tuple[Frame, ...],
     changes: tuple[CollectibleChange, ...],
     rules: SimulationRules,
-) -> list[dict[str, object]]:
+) -> tuple[list[dict[str, object]], list[BranchCase]]:
     """Capture exact Python branches for native/WASM parity checks.
 
     Returns:
-        Flat worker inputs and Python reference terminal summaries.
+        Flat worker inputs and reusable Python/native branch inputs.
     """
     cases: list[dict[str, object]] = []
+    branches: list[BranchCase] = []
     for frame in frames:
         origin = maze.tile_index(frame.player.position)
         collectibles = reconstruct_collectibles(maze, changes, frame.tick).unwrap()
@@ -201,6 +216,17 @@ def simulation_cases(
                 rules,
             ).unwrap()
             best = max(reference.terminals, key=terminal_rank)
+            expected: list[object] = [
+                best.score_gained,
+                best.tick,
+                best.pacgums_eaten,
+                best.power_pellets_eaten,
+                len(best.eaten_ghosts),
+                best.frightened_remaining,
+                best.died,
+                [int(tile) for tile in best.path],
+            ]
+            branches.append(BranchCase(collectibles, predictions, origin, move.direction, rules, prepared, expected))
             cases.append({
                 "collectibles": list(prepared.collectibles),
                 "predictionGrid": list(prepared.prediction_grid),
@@ -212,18 +238,39 @@ def simulation_cases(
                 "powerPelletScore": rules.power_pellet_score,
                 "frightenedTicks": rules.frightened_ticks,
                 "comboScores": list(rules.ghost_combo_scores),
-                "expected": [
-                    best.score_gained,
-                    best.tick,
-                    best.pacgums_eaten,
-                    best.power_pellets_eaten,
-                    len(best.eaten_ghosts),
-                    best.frightened_remaining,
-                    best.died,
-                    [int(tile) for tile in best.path],
-                ],
+                "expected": expected,
             })
-    return cases
+    return cases, branches
+
+
+def branch_values(graph: MazeGraph, case: BranchCase, native: bool) -> list[object]:
+    """Return the best terminal facts for a prepared branch.
+
+    Returns:
+        The same fields checked by the WASM worker.
+
+    Raises:
+        RuntimeError: Native branch search was unavailable.
+    """
+    if native:
+        accelerated = accelerated_simulation(graph, case.prepared, case.action)
+        if isinstance(accelerated, Nothing):
+            raise RuntimeError("native branch search unavailable")
+        result = accelerated.value
+        return [
+            result.score_gained, result.survival_horizon, result.pacgums_eaten,
+            result.power_pellets_eaten, result.ghosts_eaten, result.remaining_power_ticks,
+            result.died, [int(tile) for tile in result.path],
+        ]
+    simulation = simulate_action(
+        graph, case.collectibles, case.predictions, case.origin, case.action, case.rules,
+    ).unwrap()
+    best = max(simulation.terminals, key=terminal_rank)
+    return [
+        best.score_gained, best.tick, best.pacgums_eaten, best.power_pellets_eaten,
+        len(best.eaten_ghosts), best.frightened_remaining, best.died,
+        [int(tile) for tile in best.path],
+    ]
 
 
 def measure(operation: Callable[[], object], rounds: int, count: int) -> float:
@@ -263,6 +310,7 @@ def main() -> int:
     maze, graph, snapshots, frames, changes = generate_case(args.width, args.height, args.seed, args.seconds)
     decision_frames = frames[: args.decision_samples]
     decision_rules = SimulationRules(horizon_ticks=4)
+    worker_cases, branches = simulation_cases(maze, graph, decision_frames, changes, decision_rules)
     previous_backend = os.environ.get("PACMAN_ANALYSIS_BACKEND")
     previous_library = os.environ.get("PACMAN_NATIVE_LIBRARY")
     try:
@@ -282,6 +330,7 @@ def main() -> int:
         return 1
     timings: dict[str, float] = {}
     decision_timings: dict[str, float] = {}
+    branch_timings: dict[str, float] = {}
     expected: list[list[object]] | None = None
     expected_decisions: tuple[object, ...] | None = None
     try:
@@ -323,6 +372,14 @@ def main() -> int:
                 print(f"{mode} full decision output differs from Python")
                 return 1
             decision_timings[mode] = measure(run_decisions, args.decision_rounds, len(decision_frames))
+
+            def run_branches(native: bool = mode == "native") -> list[list[object]]:
+                return [branch_values(graph, case, native) for case in branches]
+
+            if run_branches() != [case.expected for case in branches]:
+                print(f"{mode} branch search differs from Python")
+                return 1
+            branch_timings[mode] = measure(run_branches, args.rounds, len(branches))
     finally:
         close_distance_backend()
         if previous_backend is None:
@@ -342,13 +399,7 @@ def main() -> int:
         "width": graph.width,
         "horizon": args.horizon,
         "snapshots": snapshots,
-        "simulationCases": simulation_cases(
-            maze,
-            graph,
-            decision_frames,
-            changes,
-            decision_rules,
-        ),
+        "simulationCases": worker_cases,
     }
     print(f"FakeGame: {args.width}x{args.height}, {args.seconds}s, {len(snapshots)} sampled states", flush=True)
     print("Prediction + safe-action evaluation, median us/state (game generation excluded):", flush=True)
@@ -385,6 +436,9 @@ def main() -> int:
     print(f"  Python reference     {decision_timings['python']:9.2f}")
     decision_speedup = decision_timings["python"] / decision_timings["native"]
     print(f"  Native C++ via Python {decision_timings['native']:9.2f}  {decision_speedup:.2f}x")
+    print(f"Branch search, {len(branches)} actions, median us/action:")
+    print(f"  Python branch        {branch_timings['python']:9.2f}")
+    print(f"  Native branch        {branch_timings['native']:9.2f}")
     print(
         "  WASM branch search matches Python above; browser replay orchestration is not yet verified"
     )

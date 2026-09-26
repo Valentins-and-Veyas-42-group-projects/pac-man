@@ -20,10 +20,14 @@ addMove(2, 0, 1, 3);
 
 assert.equal(engine.abiVersion(), 3);
 assert.deepEqual(engine.bfsDistances(graph, 3, 3, 0), [0, 1, 2]);
+assert.deepEqual(engine.bfsDistancesGraph(graph, 3, 3, 0), [0, 1, 2]);
 const topology = engine.createTopology(graph, 3, 3);
 assert.notEqual(topology, 0);
 assert.deepEqual(engine.topologyBfsDistances(topology, 3, 0), [0, 1, 2]);
 assert.deepEqual(engine.topologyBfsDistances(topology, 3, 2), [2, 1, 0]);
+assert.deepEqual(engine.topologyBfsDistancesGraph(topology, 3, 0), [0, 1, 2]);
+assert.deepEqual(engine.topologyBfsDistancesMasked(topology, 3, 0), [0, 1, 2]);
+assert.deepEqual(engine.topologyBfsMany(topology, 3, [0, 2]), [[0, 1, 2], [2, 1, 0]]);
 assert.deepEqual(
     engine.topologyAnalyzeDistances(topology, 3, 1, [0, 0, 0, 1, 2, 0, 1, 1]),
     {
