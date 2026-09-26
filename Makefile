@@ -26,7 +26,7 @@ MYPY = uv run mypy
 PYTEST = uv run pytest
 TY = uv run ty
 
-.PHONY: all install run debug clean lint lint-strict test typecheck native native-test native-sanitize native-benchmark prediction-benchmark analysis-benchmark analyze wasm wasm-test package compiledb
+.PHONY: all install run debug clean lint lint-strict test typecheck native native-test native-sanitize native-benchmark prediction-benchmark analysis-benchmark analysis-benchmark-sanitize analyze wasm wasm-test package compiledb
 
 all: install $(CPP_TARGET)
 
@@ -90,7 +90,20 @@ analysis-benchmark:
 	xmake build pacman-wasm
 	xmake f -c -m release --toolchain=clang
 	xmake build -r pacman-native
+	$(UV) run python -m delete_me.analyze.analysis_benchmark $(BENCH_ARGS)
+
+analysis-benchmark-sanitize:
+	$(UV) sync --locked --dev
+	xmake f -c -p wasm -a wasm32 -m release
+	xmake build pacman-wasm
+	xmake f -c -m debug --toolchain=clang -o .build/sanitize --policies=build.sanitizer.address,build.sanitizer.undefined
+	xmake build pacman-native pacman-native-benchmark
+	xmake run pacman-native-benchmark
+	@asan_runtime=$$(clang++ -print-file-name=libclang_rt.asan-$$(uname -m).so); \
+	test -f "$$asan_runtime" || { echo "Clang ASan runtime unavailable: $$asan_runtime" >&2; exit 1; }; \
+	LD_PRELOAD="$$asan_runtime" PACMAN_SANITIZER_PRELOAD=1 ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
 	$(VENV_PYTHON) -m delete_me.analyze.analysis_benchmark $(BENCH_ARGS)
+	xmake f -c -m release --toolchain=clang
 
 analyze:
 	$(MAKE) native RELEASE=1

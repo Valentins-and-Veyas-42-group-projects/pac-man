@@ -8,7 +8,7 @@ add_rules("mode.debug", "mode.release")
 -- Sanitizer and release builds must not reuse incompatible module artifacts.
 set_policy("build.c++.modules.reuse", false)
 
-set_warnings("all", "extra")
+set_warnings("all", "extra", "error")
 add_cxxflags("-Wpedantic", "-Wconversion", "-Wshadow", { tools = { "gcc", "clang" } })
 
 if is_plat("wasm") then

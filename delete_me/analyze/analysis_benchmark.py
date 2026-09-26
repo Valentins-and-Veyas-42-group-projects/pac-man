@@ -371,7 +371,11 @@ def main() -> int:
         ]
         print("WASM worker check: node web/benchmark-analysis-worker.mjs <temporary fixture>", flush=True)
         try:
-            completed = subprocess.run(command, check=False)
+            node_env = os.environ.copy()
+            if node_env.pop("PACMAN_SANITIZER_PRELOAD", None):
+                # Only the Python process loads the sanitized native library.
+                node_env.pop("LD_PRELOAD", None)
+            completed = subprocess.run(command, check=False, env=node_env)
         except OSError as error:
             print(f"could not start Node: {error}")
             return 1
