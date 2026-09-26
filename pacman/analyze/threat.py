@@ -11,6 +11,11 @@ from pacman.analyze.state import GhostDistance
 from pacman.replay.models import Ghost, TileIndex
 
 NO_THREAT = -1
+GHOST_MASK = (1 << len(Ghost)) - 1
+GHOSTS_BY_MASK = tuple(
+    tuple(ghost for ghost in Ghost if mask & (1 << int(ghost)))
+    for mask in range(GHOST_MASK + 1)
+)
 
 
 class ThreatError(Enum):
@@ -92,10 +97,7 @@ def build_threat_field(
             return Ok(
                 ThreatField(
                     etas=accelerated.value.etas,
-                    ghosts=tuple(
-                        tuple(ghost for ghost in Ghost if owner_mask & (1 << int(ghost)))
-                        for owner_mask in accelerated.value.owner_masks
-                    ),
+                    ghosts=tuple(GHOSTS_BY_MASK[mask & GHOST_MASK] for mask in accelerated.value.owner_masks),
                 )
             )
 

@@ -10,7 +10,7 @@ from pacman.analyze.distance_backend import (
     accelerated_predicted_threat,
 )
 from pacman.analyze.models import MazeGraph, Move
-from pacman.analyze.threat import NO_THREAT, ThreatField
+from pacman.analyze.threat import GHOST_MASK, GHOSTS_BY_MASK, NO_THREAT, ThreatField
 from pacman.replay.models import Direction, Ghost, GhostFrame, GhostState, Maze, TileIndex
 
 OPPOSITE: dict[Direction, Direction] = {
@@ -149,10 +149,7 @@ def build_predicted_threat_field(
         return Ok(
             ThreatField(
                 accelerated.value.etas,
-                tuple(
-                    tuple(ghost for ghost in Ghost if owner_mask & (1 << int(ghost)))
-                    for owner_mask in accelerated.value.owner_masks
-                ),
+                tuple(GHOSTS_BY_MASK[mask & GHOST_MASK] for mask in accelerated.value.owner_masks),
             )
         )
 

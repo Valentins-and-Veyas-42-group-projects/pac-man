@@ -262,7 +262,7 @@ class NativePathfinding:
         Returns:
             Distances using negative one for unreachable tiles.
         """
-        return tuple(-1 if value == NATIVE_UNREACHABLE else int(value) for value in output)
+        return tuple(-1 if value == NATIVE_UNREACHABLE else value for value in output)
 
     def _topology_for(self, graph: MazeGraph) -> Option[ctypes.c_void_p]:
         """Return a cached owned topology, constructing it only once."""
@@ -456,7 +456,7 @@ class NativePathfinding:
             return Some(
                 AcceleratedThreatField(
                     etas=self._decode(etas),
-                    owner_masks=tuple(int(owner) for owner in owners),
+                    owner_masks=tuple(owners),
                 )
             )
         except Exception:
@@ -505,7 +505,7 @@ class NativePathfinding:
             return Some(
                 AcceleratedThreatField(
                     etas=self._decode(etas),
-                    owner_masks=tuple(int(owner) for owner in owners),
+                    owner_masks=tuple(owners),
                 )
             )
         except Exception:
@@ -526,7 +526,7 @@ class NativePathfinding:
             if isinstance(topology, Nothing):
                 return Nothing()
             count = len(graph.moves)
-            etas = (ctypes.c_uint32 * count)(*(NATIVE_UNREACHABLE if eta < 0 else eta for eta in threat_etas))
+            etas = (ctypes.c_uint32 * count)(*threat_etas)
             actions = (PacActionEvaluation * 4)()
             reachable = (ctypes.c_uint16 * (count * 4))()
             action_count = ctypes.c_size_t()
@@ -551,7 +551,7 @@ class NativePathfinding:
                         direction=Direction(actions[index].direction),
                         first_tile=TileIndex(actions[index].first_tile),
                         reachable_tiles=tuple(
-                            TileIndex(reachable[index * count + tile]) for tile in range(actions[index].safe_tiles)
+                            map(TileIndex, reachable[index * count : index * count + actions[index].safe_tiles])
                         ),
                         safe_tiles=actions[index].safe_tiles,
                         safe_intersections=actions[index].safe_intersections,
@@ -589,7 +589,9 @@ class NativePathfinding:
                 combo_scores,
                 len(combo_scores),
                 prepared.horizon,
-                4096,
+                # At most four continuations exist per tick; short horizons
+                # need far fewer frontier slots than the 4096-state ceiling.
+                1 << (2 * min(prepared.horizon, 6)),
                 prepared.pacgum_score,
                 prepared.power_pellet_score,
                 prepared.frightened_ticks,
