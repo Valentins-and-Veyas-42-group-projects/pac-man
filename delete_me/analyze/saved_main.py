@@ -1,24 +1,89 @@
 """Load the latest persisted replay and run tactical analysis over it."""
 
-from dataclasses import replace
+import os
+from concurrent.futures import ProcessPoolExecutor
+from dataclasses import dataclass, replace
+from enum import Enum
+from functools import partial
 
 from pacman.analyze.collectibles import CollectibleField
 from pacman.analyze.decision import analyze_decision
-from pacman.analyze.evaluation import PlayQuality
+from pacman.analyze.evaluation import PlayEvaluation, PlayQuality
 from pacman.analyze.maze_graph import build_maze_graph
 from pacman.analyze.models import MazeGraph
 from pacman.analyze.simulation import SimulationRules
 from pacman.analyze.timeline import evaluation_loss, summarize_replay
 from pacman.analyze.topology import TileKind, classify_tile
 from pacman.replay.maze_codec import decode_collectibles
-from pacman.replay.models import Frame, GamePhase, GhostState, Maze, Tick, TileIndex
+from pacman.replay.models import CollectibleChange, Direction, Frame, GamePhase, GhostState, Maze, Tick, TileIndex
 from pacman.replay.store import ReplayStore
-from typed_errs import Err, Some
+from typed_errs import Err, Nothing, Ok, Option, Result, Some
 
 from delete_me.analyze.pipeline_main import DB_PATH
 
 DEATH_CONTEXT_TICKS = 120
 MAX_CAUSE_SEARCH_TICKS = 600
+
+
+class SavedAnalysisError(Enum):
+    """Failures outside an individual replay decision."""
+
+    WORKER_FAILED = "worker_failed"
+
+
+@dataclass(frozen=True, slots=True)
+class SavedDecision:
+    """A noteworthy frame with the collectible state at its decision tick."""
+
+    frame: Frame
+    played_action: Direction
+    collectibles: CollectibleField
+
+
+def evaluate_saved_decision(
+    graph: MazeGraph,
+    maze: Maze,
+    changes: tuple[CollectibleChange, ...],
+    decision: SavedDecision,
+) -> Option[PlayEvaluation]:
+    """Return one evaluation, or Nothing when that decision is invalid."""
+    processed = analyze_decision(
+        graph,
+        maze,
+        changes,
+        decision.frame,
+        decision.played_action,
+        SimulationRules(horizon_ticks=4),
+        Some(decision.collectibles),
+    )
+    return Nothing() if isinstance(processed, Err) else Some(processed.value.evaluation)
+
+
+def evaluate_saved_decisions(
+    graph: MazeGraph,
+    maze: Maze,
+    changes: tuple[CollectibleChange, ...],
+    decisions: list[SavedDecision],
+) -> Result[tuple[Option[PlayEvaluation], ...], SavedAnalysisError]:
+    """Spread a long replay across processes while preserving tick order.
+
+    Returns:
+        Evaluations in replay order, or a contextual worker error.
+    """
+    operation = partial(evaluate_saved_decision, graph, maze, changes)
+    try:
+        if len(decisions) < 128:
+            return Ok(tuple(map(operation, decisions)))
+        workers = min(8, os.cpu_count() or 1)
+        with ProcessPoolExecutor(max_workers=workers) as executor:
+            # Fewer batches avoid repeatedly serializing the same graph.
+            return Ok(tuple(executor.map(operation, decisions, chunksize=128)))
+    except Exception as error:
+        return Err(
+            error=SavedAnalysisError.WORKER_FAILED,
+            namespace="saved_analysis",
+            context_msg=f"Failed to analyze replay decisions: {error}",
+        )
 
 
 def pressured(frame: Frame, maximum_distance: int = 4) -> bool:
@@ -139,7 +204,8 @@ def run(limit: int = 5) -> int:
         if isinstance(kind, Some):
             topology_counts[kind.value] += 1
 
-    evaluations = []
+    evaluations: list[PlayEvaluation] = []
+    decisions: list[SavedDecision] = []
     skipped = 0
     ignored = 0
     frames = batch.value.frames
@@ -179,19 +245,23 @@ def run(limit: int = 5) -> int:
         if not collectibles_valid:
             skipped += 1
             continue
-        processed = analyze_decision(
-            graph.value,
-            maze,
-            batch.value.collectible_changes,
-            replace(previous, tick=current.tick),
-            current.player.direction,
-            SimulationRules(horizon_ticks=4),
-            Some(CollectibleField(tuple(collectible_tiles))),
+        decisions.append(
+            SavedDecision(
+                replace(previous, tick=current.tick),
+                current.player.direction,
+                CollectibleField(tuple(collectible_tiles)),
+            )
         )
-        if isinstance(processed, Err):
+
+    processed = evaluate_saved_decisions(graph.value, maze, batch.value.collectible_changes, decisions)
+    if isinstance(processed, Err):
+        processed.print_diagnostic()
+        return 1
+    for result in processed.value:
+        if isinstance(result, Nothing):
             skipped += 1
             continue
-        evaluations.append(processed.value.evaluation)
+        evaluations.append(result.value)
 
     summary = summarize_replay(tuple(evaluations), critical_limit=limit)
     grouped = {
