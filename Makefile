@@ -58,31 +58,33 @@ test:
 typecheck:
 	$(TY) check pacman delete_me tests
 
+# Xmake can reuse a sanitized core archive after a mode switch; force the link inputs fresh.
 native:
 	xmake f -c -m $(NATIVE_MODE) --toolchain=clang
-	xmake build pacman-native
+	xmake build -r pacman-native
 
 native-test:
 	xmake f -c -m release --toolchain=clang
-	xmake build pacman-native-tests
+	xmake build -r pacman-native-tests
 	xmake run pacman-native-tests
 
 native-sanitize:
 	xmake f -c -m debug --toolchain=clang -o .build/sanitize --policies=build.sanitizer.address,build.sanitizer.undefined
-	xmake build pacman-native-tests pacman-native pacman-native-benchmark
+	xmake build -r pacman-native-tests pacman-native pacman-native-benchmark
 	xmake run pacman-native-tests
 	xmake run pacman-native-benchmark
 	xmake f -c -m release --toolchain=clang
+	xmake build -r pacman-native
 
 native-benchmark:
 	xmake f -c -m release --toolchain=clang
-	xmake build pacman-native pacman-native-benchmark
+	xmake build -r pacman-native pacman-native-benchmark
 	xmake run pacman-native-benchmark
 	uv run python -m delete_me.analyze.pathfinding_benchmark
 
 prediction-benchmark:
 	xmake f -c -m release --toolchain=clang
-	xmake build pacman-native
+	xmake build -r pacman-native
 	$(VENV_PYTHON) -m delete_me.analyze.prediction_benchmark
 
 analysis-benchmark:
@@ -97,13 +99,14 @@ analysis-benchmark-sanitize:
 	xmake f -c -p wasm -a wasm32 -m release
 	xmake build pacman-wasm
 	xmake f -c -m debug --toolchain=clang -o .build/sanitize --policies=build.sanitizer.address,build.sanitizer.undefined
-	xmake build pacman-native pacman-native-benchmark
+	xmake build -r pacman-native pacman-native-benchmark
 	xmake run pacman-native-benchmark
 	@asan_runtime=$$(clang++ -print-file-name=libclang_rt.asan-$$(uname -m).so); \
 	test -f "$$asan_runtime" || { echo "Clang ASan runtime unavailable: $$asan_runtime" >&2; exit 1; }; \
 	LD_PRELOAD="$$asan_runtime" PACMAN_SANITIZER_PRELOAD=1 ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
 	$(VENV_PYTHON) -m delete_me.analyze.analysis_benchmark $(BENCH_ARGS)
 	xmake f -c -m release --toolchain=clang
+	xmake build -r pacman-native
 
 analyze:
 	$(MAKE) native RELEASE=1
