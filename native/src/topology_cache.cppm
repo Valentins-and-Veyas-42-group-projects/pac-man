@@ -94,7 +94,7 @@ fn build_topology_cache(const graph_view graph, topology_cache &output) noexcept
         output.intersection.resize(tile_count);
 
         // Direction-indexed edges and tile degree serve later hot lookups.
-        for (std::size_t source = 0; source < tile_count; ++source) {
+        for (std::size_t source = 0; source < tile_count; source++) {
             const let &tile = graph.tiles[source];
 
             if (tile.count > tile.moves.size()) {
@@ -107,7 +107,7 @@ fn build_topology_cache(const graph_view graph, topology_cache &output) noexcept
                 static_cast<std::uint8_t>(tile.count >= 3);
 
             for (std::size_t move_index = 0; move_index < tile.count;
-                 ++move_index) {
+                 move_index++) {
                 const let &move = tile.moves[move_index];
 
                 const let heading = static_cast<std::size_t>(move.heading);
@@ -144,7 +144,7 @@ fn build_topology_cache(const graph_view graph, topology_cache &output) noexcept
         };
 
         // Pay for each source BFS once, then answer distance queries by lookup.
-        for (std::size_t source = 0; source < tile_count; ++source) {
+        for (std::size_t source = 0; source < tile_count; source++) {
             if (!bfs_distances(graph, static_cast<tile_index>(source),
                                temporary_distances, make_view(visited_words),
                                make_view(frontier_words),
@@ -155,21 +155,21 @@ fn build_topology_cache(const graph_view graph, topology_cache &output) noexcept
             let *destination_row = output.distances.data() + source * stride;
 
             for (std::size_t destination = 0; destination < tile_count;
-                 ++destination) {
+                 destination++) {
                 destination_row[destination] = temporary_distances[destination];
             }
         }
 
         // A first move is shortest exactly when its remaining distance is
         // one less. Keep ties so later choices retain all valid routes.
-        for (std::size_t source = 0; source < tile_count; ++source) {
+        for (std::size_t source = 0; source < tile_count; source++) {
             const let *source_distances =
                 output.distance_row(static_cast<tile_index>(source));
 
             let *direction_row = output.shortest_dirs.data() + source * stride;
 
             for (std::size_t destination = 0; destination < tile_count;
-                 ++destination) {
+                 destination++) {
                 const let distance = source_distances[destination];
 
                 if (distance == 0 || distance == cached_unreachable) {
@@ -182,7 +182,7 @@ fn build_topology_cache(const graph_view graph, topology_cache &output) noexcept
                 const let &tile = graph.tiles[source];
 
                 for (std::size_t move_index = 0; move_index < tile.count;
-                     ++move_index) {
+                     move_index++) {
                     const let &move = tile.moves[move_index];
 
                     const let next_distance =

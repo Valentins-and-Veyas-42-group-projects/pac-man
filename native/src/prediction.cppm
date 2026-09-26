@@ -148,9 +148,9 @@ fn predict_ghost(const graph_view graph, const ghost_prediction_input ghost,
     let next = workspace.next;
     std::size_t current_count = 1;
 
-    for (std::size_t tick = 1; tick <= horizon; ++tick) {
+    for (std::size_t tick = 1; tick <= horizon; tick++) {
         std::size_t next_count = 0;
-        for (std::size_t index = 0; index < current_count; ++index) {
+        for (std::size_t index = 0; index < current_count; index++) {
             if (!detail::append_legal_moves(
                     graph, current[index], next, next_count,
                     workspace.seen.first(state_capacity),
@@ -159,7 +159,7 @@ fn predict_ghost(const graph_view graph, const ghost_prediction_input ghost,
             }
         }
 
-        for (std::size_t index = 0; index < next_count; ++index) {
+        for (std::size_t index = 0; index < next_count; index++) {
             const let tile = static_cast<std::size_t>(next[index].tile);
             workspace.earliest_arrival[tile] =
                 std::min(workspace.earliest_arrival[tile],
@@ -203,7 +203,7 @@ fn build_predicted_threat_field(
 
         const let owner_mask =
             static_cast<std::uint8_t>(std::uint32_t{1} << ghost.ghost);
-        for (std::size_t tile = 0; tile < tile_count; ++tile) {
+        for (std::size_t tile = 0; tile < tile_count; tile++) {
             const let arrival = workspace.earliest_arrival[tile];
             if (arrival < output.eta[tile]) {
                 output.eta[tile] = arrival;

@@ -77,12 +77,12 @@ fn copy_graph_tiles(const pac_tile_neighbors *source, const size_t tile_count,
         return PAC_INTERNAL_ERROR;
     }
 
-    for (size_t tile = 0; tile < tile_count; ++tile) {
+    for (size_t tile = 0; tile < tile_count; tile++) {
         if (source[tile].count > 4) {
             return PAC_INVALID_ARGUMENT;
         }
         output[tile].count = source[tile].count;
-        for (size_t index = 0; index < source[tile].count; ++index) {
+        for (size_t index = 0; index < source[tile].count; index++) {
             const let &move = source[tile].moves[index];
             if (static_cast<size_t>(move.destination) >= tile_count ||
                 move.direction > PAC_DIRECTION_LEFT || move.wraparound > 1) {
@@ -182,7 +182,7 @@ fn topology_threat_field(pac_topology &topology, const pac_ghost_origin *ghosts,
     }
 
     std::array<pacman::ghost_origin, ghost_capacity> origins{};
-    for (size_t index = 0; index < ghost_count; ++index) {
+    for (size_t index = 0; index < ghost_count; index++) {
         const let &ghost = ghosts[index];
         if (static_cast<size_t>(ghost.tile) >= topology.tile_count ||
             ghost.ghost >= ghost_capacity || ghost.dangerous > 1) {
@@ -363,7 +363,7 @@ cfn PAC_API pac_topology_bfs_many(
     }
 
     const workspace_guard lock{topology->workspace_lock};
-    for (size_t index = 0; index < origin_count; ++index) {
+    for (size_t index = 0; index < origin_count; index++) {
         if (static_cast<size_t>(origins[index]) >= topology->tile_count) {
             return PAC_INVALID_ARGUMENT;
         }
@@ -426,7 +426,7 @@ cfn PAC_API pac_topology_predict_threat(
     }
 
     std::array<pacman::ghost_prediction_input, ghost_capacity> inputs{};
-    for (size_t index = 0; index < ghost_count; ++index) {
+    for (size_t index = 0; index < ghost_count; index++) {
         const let &ghost = ghosts[index];
         if (static_cast<size_t>(ghost.tile) >= topology->tile_count ||
             ghost.direction > PAC_DIRECTION_LEFT ||
@@ -488,7 +488,7 @@ cfn PAC_API pac_topology_evaluate_actions(
             *action_count)) {
         return PAC_INTERNAL_ERROR;
     }
-    for (size_t index = 0; index < *action_count; ++index) {
+    for (size_t index = 0; index < *action_count; index++) {
         const let &item = evaluated[index];
         actions[index] = {
             .safe_tiles = static_cast<uint32_t>(item.safe_tiles),
@@ -535,7 +535,7 @@ cfn PAC_API pac_topology_simulate_action(pac_topology *topology,
     if (!collectibles) {
         return PAC_INTERNAL_ERROR;
     }
-    for (size_t tile = 0; tile < topology->tile_count; ++tile) {
+    for (size_t tile = 0; tile < topology->tile_count; tile++) {
         if (input->collectibles[tile] > 2) {
             return PAC_INVALID_ARGUMENT;
         }
@@ -543,7 +543,7 @@ cfn PAC_API pac_topology_simulate_action(pac_topology *topology,
             static_cast<pacman::collectible>(input->collectibles[tile]);
     }
     uint8_t seen_ghosts = 0;
-    for (size_t index = 0; index < input->ghost_count; ++index) {
+    for (size_t index = 0; index < input->ghost_count; index++) {
         const let ghost = input->ghost_order[index];
         if (ghost >= 4 || (seen_ghosts & (1u << ghost)) != 0) {
             return PAC_INVALID_ARGUMENT;
@@ -660,7 +660,7 @@ cfn PAC_API pac_bfs_distances(const pac_tile_neighbors *tiles,
         return PAC_INTERNAL_ERROR;
     }
 
-    for (size_t tile = 0; tile < tile_count; ++tile) {
+    for (size_t tile = 0; tile < tile_count; tile++) {
         const let &source = tiles[tile];
 
         if (source.count > 4) {
@@ -670,7 +670,7 @@ cfn PAC_API pac_bfs_distances(const pac_tile_neighbors *tiles,
         let &destination = graph_tiles[tile];
         destination.count = source.count;
 
-        for (size_t index = 0; index < source.count; ++index) {
+        for (size_t index = 0; index < source.count; index++) {
             const let &source_move = source.moves[index];
 
             if (static_cast<size_t>(source_move.destination) >= tile_count ||

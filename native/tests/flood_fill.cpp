@@ -120,7 +120,7 @@ fn test_topology_masks() noexcept -> bool {
     let graph_result = pacman::tile_set_view{graph_words, 3};
     let masked_result = pacman::tile_set_view{masked_words, 3};
 
-    for (std::size_t tile = 0; tile < tiles.size(); ++tile) {
+    for (std::size_t tile = 0; tile < tiles.size(); tile++) {
         frontier.clear();
         frontier.set(tile);
         pacman::detail::expand_frontier_unchecked(
@@ -246,8 +246,8 @@ fn main() -> int {
         return static_cast<pacman::tile_index>(y * width + x);
     };
 
-    for (std::size_t y = 0; y < height; ++y) {
-        for (std::size_t x = 0; x < width; ++x) {
+    for (std::size_t y = 0; y < height; y++) {
+        for (std::size_t x = 0; x < width; x++) {
             let index = y * width + x;
             let up = (y + height - 1) % height;
             let right = (x + 1) % width;

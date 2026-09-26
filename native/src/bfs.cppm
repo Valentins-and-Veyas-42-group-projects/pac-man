@@ -86,7 +86,7 @@ fn bfs_distances(const graph_view graph, const tile_index origin,
         // One word pass removes old tiles and forms the next frontier; only
         // newly discovered bits need individual distance writes.
         for (std::size_t word_index = 0; word_index < next.words.size();
-             ++word_index) {
+             word_index++) {
             let pending = next.words[word_index] & ~visited.words[word_index];
 
             next.words[word_index] = pending;
@@ -169,7 +169,7 @@ fn bfs_distances_masked(const topology_masks &topology,
                                          next);
 
         let has_next = false;
-        for (std::size_t word_index = 0; word_index < words; ++word_index) {
+        for (std::size_t word_index = 0; word_index < words; word_index++) {
             let pending = next.words[word_index] & ~visited.words[word_index];
             next.words[word_index] = pending;
             visited.words[word_index] |= pending;

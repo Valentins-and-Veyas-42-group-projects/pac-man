@@ -33,7 +33,7 @@ force_inline fn expand_frontier_unchecked(const graph_view graph,
     }
 
     for (std::size_t word_index = 0; word_index < frontier.words.size();
-         ++word_index) {
+         word_index++) {
         let pending = frontier.words[word_index];
 
         while (pending != 0) {
@@ -47,7 +47,7 @@ force_inline fn expand_frontier_unchecked(const graph_view graph,
             const let &neighbors = graph.tiles[index];
 
             for (std::size_t neighbor_index = 0;
-                 neighbor_index < neighbors.count; ++neighbor_index) {
+                 neighbor_index < neighbors.count; neighbor_index++) {
                 const let &neighbor = neighbors.moves[neighbor_index];
                 let destination =
                     static_cast<std::size_t>(neighbor.destination);

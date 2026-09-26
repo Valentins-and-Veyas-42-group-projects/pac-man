@@ -276,7 +276,7 @@ fn search_action(const graph_view graph,
         const let next_base = current_base == 0 ? state_capacity : 0;
         std::fill_n(table.get(), table_size, std::size_t{0});
         std::size_t next_count = 0;
-        for (std::size_t index = 0; index < current_count; ++index) {
+        for (std::size_t index = 0; index < current_count; index++) {
             const let current_slot = current_base + index;
             const let &current = slots[current_slot].state;
             const let moves = graph.neighbors(current.tile);

@@ -69,7 +69,7 @@ inline fn expand_frontier_masked_unchecked(const topology_masks &topology,
     shift(topology.west, 1, false);
 
     for (std::size_t index = 0; index < topology.exceptional_edge_count;
-         ++index) {
+         index++) {
         const let edge = topology.exceptional_edges[index];
         const let source = static_cast<std::size_t>(edge.source);
         if ((frontier.words[source / bits_per_word] &
@@ -147,14 +147,14 @@ inline fn build_topology_masks(const graph_view graph, const std::size_t width,
     output.exceptional_edge_count = 0;
     output.width = width;
 
-    for (std::size_t source = 0; source < graph.tiles.size(); ++source) {
+    for (std::size_t source = 0; source < graph.tiles.size(); source++) {
         const let &neighbors = graph.tiles[source];
 
         if (neighbors.count > neighbors.moves.size()) {
             return false;
         }
 
-        for (std::size_t index = 0; index < neighbors.count; ++index) {
+        for (std::size_t index = 0; index < neighbors.count; index++) {
             const let &move = neighbors.moves[index];
 
             if (static_cast<std::size_t>(move.destination) >=

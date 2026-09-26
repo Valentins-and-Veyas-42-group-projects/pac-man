@@ -44,7 +44,7 @@ combine_threat_distances(const std::span<const ghost_origin> ghosts,
     std::ranges::fill(output.eta, no_threat);
     std::ranges::fill(output.owners, std::uint8_t{0});
 
-    for (std::size_t ghost_idx = 0; ghost_idx < ghosts.size(); ++ghost_idx) {
+    for (std::size_t ghost_idx = 0; ghost_idx < ghosts.size(); ghost_idx++) {
         const let &ghost = ghosts[ghost_idx];
 
         if (!ghost.dangerous) {
@@ -59,7 +59,7 @@ combine_threat_distances(const std::span<const ghost_origin> ghosts,
         const let owner_mask =
             static_cast<std::uint8_t>(std::uint32_t{1} << ghost.ghost);
 
-        for (std::size_t tile = 0; tile < tile_count; ++tile) {
+        for (std::size_t tile = 0; tile < tile_count; tile++) {
             const let arrival = distances[tile];
             if (arrival < output.eta[tile]) {
                 output.eta[tile] = arrival;
