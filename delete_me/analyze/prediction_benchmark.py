@@ -1,8 +1,12 @@
 """Compare Python and native prediction on a generated mock game."""
 
+import json
+import subprocess
+import tempfile
 from argparse import ArgumentParser
 from collections.abc import Callable
 from hashlib import sha256
+from pathlib import Path
 from statistics import median
 from time import perf_counter_ns
 
@@ -25,6 +29,8 @@ from pacman.replay.models import (
     TileIndex,
 )
 from typed_errs import Err, Nothing, Some
+
+from delete_me.analyze.analysis_benchmark import encoded_graph
 
 
 def measure(operation: Callable[[], object], rounds: int) -> float:
@@ -117,8 +123,23 @@ def main() -> int:
     print(f"{'Python prediction':22} {python_us:9.2f} us/call")
     print(f"{'C++ cached prediction':22} {native_us:9.2f} us/call")
     print(f"{'speedup':22} {python_us / native_us:9.2f}x")
+    fixture = {
+        "graph": encoded_graph(graph),
+        "tileCount": tile_count,
+        "width": graph.width,
+        "horizon": args.horizon,
+        "ghosts": [[int(tile), int(directions[index]), index, 1] for index, tile in enumerate(tiles)],
+        "expected": {"etas": list(reference.etas), "ownerMasks": list(owner_masks)},
+    }
+    with tempfile.TemporaryDirectory(prefix="pacman-prediction-") as directory:
+        path = Path(directory) / "fixture.json"
+        path.write_text(json.dumps(fixture), encoding="utf-8")
+        completed = subprocess.run(
+            ["node", "web/benchmark-prediction.mjs", str(path), str(args.rounds)],
+            check=False,
+        )
     backend.close()
-    return 0
+    return completed.returncode
 
 
 if __name__ == "__main__":

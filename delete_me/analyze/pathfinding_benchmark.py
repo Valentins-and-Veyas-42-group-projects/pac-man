@@ -1,8 +1,12 @@
 """Compare Python and native BFS implementations on a generated maze."""
 
+import json
+import subprocess
+import tempfile
 from argparse import ArgumentParser
 from collections.abc import Callable
 from hashlib import sha256
+from pathlib import Path
 from statistics import median
 from time import perf_counter_ns
 
@@ -14,6 +18,8 @@ from pacman.maze_loader import load_maze
 from pacman.replay.maze_codec import encode_topology
 from pacman.replay.models import Maze, MazeId, TileIndex
 from typed_errs import Err, Nothing, Some
+
+from delete_me.analyze.analysis_benchmark import encoded_graph
 
 Search = Callable[[MazeGraph, TileIndex], tuple[int, ...]]
 
@@ -121,9 +127,11 @@ def main() -> int:
         ("C++ selected cached", native_search(backend, "selected")),
     )
 
+    reference_fields: list[tuple[int, ...]] = []
     for origin_value in range(len(graph.moves)):
         origin = TileIndex(origin_value)
         expected = python(graph, origin)
+        reference_fields.append(expected)
         if any(search(graph, origin) != expected for _, search in implementations[1:]):
             print(f"distance mismatch at origin {origin_value}")
             backend.close()
@@ -136,8 +144,21 @@ def main() -> int:
         print(f"{name:22} {elapsed:9.2f} us/search")
     batch_elapsed = measure_batch(graph, backend, args.rounds) / 1_000
     print(f"{'C++ selected batch':22} {batch_elapsed:9.2f} us/field")
+    fixture = {
+        "graph": encoded_graph(graph),
+        "tileCount": len(graph.moves),
+        "width": graph.width,
+        "digest": sha256(json.dumps(reference_fields, separators=(",", ":")).encode()).hexdigest(),
+    }
+    with tempfile.TemporaryDirectory(prefix="pacman-bfs-") as directory:
+        path = Path(directory) / "fixture.json"
+        path.write_text(json.dumps(fixture), encoding="utf-8")
+        completed = subprocess.run(
+            ["node", "web/benchmark-pathfinding.mjs", str(path), str(args.rounds)],
+            check=False,
+        )
     backend.close()
-    return 0
+    return completed.returncode
 
 
 if __name__ == "__main__":

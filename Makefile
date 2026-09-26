@@ -26,7 +26,7 @@ MYPY = uv run mypy
 PYTEST = uv run pytest
 TY = uv run ty
 
-.PHONY: all install run debug clean lint lint-strict test typecheck native native-test native-sanitize native-benchmark prediction-benchmark analysis-benchmark analysis-benchmark-sanitize analyze wasm wasm-test package compiledb
+.PHONY: all install run debug clean lint lint-strict test typecheck native native-test native-sanitize native-benchmark prediction-benchmark analysis-benchmark analysis-benchmark-sanitize benchmark analyze wasm wasm-test package compiledb
 
 all: install $(CPP_TARGET)
 
@@ -77,12 +77,14 @@ native-sanitize:
 	xmake build -r pacman-native
 
 native-benchmark:
+	$(MAKE) wasm
 	xmake f -c -m release --toolchain=clang
 	xmake build -r pacman-native pacman-native-benchmark
 	xmake run pacman-native-benchmark
 	uv run python -m delete_me.analyze.pathfinding_benchmark
 
 prediction-benchmark:
+	$(MAKE) wasm
 	xmake f -c -m release --toolchain=clang
 	xmake build -r pacman-native
 	$(VENV_PYTHON) -m delete_me.analyze.prediction_benchmark
@@ -107,6 +109,9 @@ analysis-benchmark-sanitize:
 	$(VENV_PYTHON) -m delete_me.analyze.analysis_benchmark $(BENCH_ARGS)
 	xmake f -c -m release --toolchain=clang
 	xmake build -r pacman-native
+
+benchmark:
+	@$(UV) run python -m delete_me.analyze.benchmark_summary $(BENCH_ARGS)
 
 analyze:
 	$(MAKE) native RELEASE=1
