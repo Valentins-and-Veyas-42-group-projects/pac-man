@@ -639,12 +639,16 @@ class NativePathfinding:
 
 
 def _library_candidates() -> tuple[str, ...]:
-    """Return explicit, recent build, packaged, and system libraries."""
+    """Use the pinned library, or search built and installed libraries.
+
+    Returns:
+        Candidate library paths in load order.
+    """
     candidates: list[str] = []
     configured = os.environ.get("PACMAN_NATIVE_LIBRARY")
 
     if configured:
-        candidates.append(configured)
+        return (configured,)
 
     repository = Path(__file__).resolve().parents[2]
     packaged = Path(__file__).resolve().parent / "lib"
@@ -652,7 +656,10 @@ def _library_candidates() -> tuple[str, ...]:
     for directory in (repository / "build", packaged):
         try:
             libraries = sorted(
-                directory.glob("**/libpacman-native.*"),
+                (
+                    path for path in directory.glob("**/libpacman-native.*")
+                    if path.suffix in (".so", ".dylib", ".dll")
+                ),
                 key=lambda path: path.stat().st_mtime_ns,
                 reverse=True,
             )
