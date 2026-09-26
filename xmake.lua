@@ -12,6 +12,25 @@ set_policy("build.c++.modules.reuse", false)
 set_warnings("all", "extra")
 add_cxxflags("-Wpedantic", "-Wconversion", "-Wshadow", { tools = { "gcc", "clang" } })
 
+local function update_compile_commands()
+	import("core.base.task")
+	import("core.project.config")
+
+	local lockpath = path.join(config.builddir(), ".gens", "pacman-compile-commands")
+	local lock = io.openlock(lockpath .. ".lock")
+	if not lock:trylock() then
+		return
+	end
+
+	task.run("project", {
+		kind = "compile_commands",
+		outputdir = ".build",
+		lsp = "clangd",
+		target = false,
+	})
+	lock:close()
+end
+
 if is_plat("wasm") then
 	target("pacman-wasm")
 	set_kind("binary")
@@ -22,7 +41,7 @@ if is_plat("wasm") then
 	-- underlying Clang version. The adapter fixes that probe only.
 	set_toolset("cxx", "clangxx@tools/emscripten/clang++")
 	set_policy("build.c++.modules.fallbackscanner", true)
-	add_rules("plugin.compile_commands.autoupdate", { outputdir = ".build", lsp = "clangd" })
+	after_build(update_compile_commands)
 	add_includedirs("native/include", "native/src")
 	add_files("native/abi/**.cpp")
 	add_files("native/src/**.cppm")
@@ -46,6 +65,7 @@ if is_plat("wasm") then
 	set_toolchains("emcc")
 	set_toolset("cxx", "clangxx@tools/emscripten/clang++")
 	set_policy("build.c++.modules.fallbackscanner", true)
+	after_build(update_compile_commands)
 	add_includedirs("native/include", "native/src")
 	add_files("native/abi/**.cpp")
 	add_files("native/src/**.cppm")
@@ -55,25 +75,18 @@ if is_plat("wasm") then
 		os.execv("node", { target:targetfile() })
 	end)
 else
-	target("pacman-kernel-scalar")
-	set_kind("static")
-	set_default(false)
-	add_includedirs("native/include")
-	add_files("native/kernels/scalar/**.cppm", { public = true })
-	add_cxflags("-fvisibility=hidden")
-
 	target("pacman-core")
 	set_kind("static")
 	set_default(false)
-	add_deps("pacman-kernel-scalar")
 	add_includedirs("native/include", "native/src")
+	add_files("native/kernels/scalar/**.cppm", { public = true })
 	add_files("native/src/**.cppm", { public = true })
 	add_cxflags("-fvisibility=hidden")
 
 	target("pacman-native")
 	set_kind("shared")
 	add_deps("pacman-core")
-	add_rules("plugin.compile_commands.autoupdate", { outputdir = ".build", lsp = "clangd" })
+	after_build(update_compile_commands)
 	add_includedirs("native/include")
 	add_headerfiles("native/include/(pacman/*.h)")
 	add_files("native/abi/**.cpp")
@@ -105,7 +118,7 @@ else
 	set_kind("binary")
 	set_default(false)
 	add_deps("pacman-core")
-	add_rules("plugin.compile_commands.autoupdate", { outputdir = ".build", lsp = "clangd" })
+	after_build(update_compile_commands)
 	add_includedirs("native/include")
 	add_files("native/abi/**.cpp")
 	add_files("native/tests/**.cpp")

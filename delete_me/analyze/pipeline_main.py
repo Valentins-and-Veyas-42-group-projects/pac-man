@@ -16,7 +16,7 @@ from pacman.analyze.messages import (
     TurnObserved,
 )
 from pacman.analyze.models import MazeGraph, Move
-from pacman.analyze.pathfinding import bfs
+from pacman.analyze.distance_backend import distances
 from pacman.analyze.simulation import SimulationRules
 from pacman.maze_loader import load_maze
 from pacman.replay.maze_codec import encode_collectibles, encode_topology
@@ -161,8 +161,8 @@ class FakeGame:
         return fumbled
 
     def _score_move(self, move: Move) -> int:
-        field = bfs(self.graph, move.destination).unwrap()
-        nearest_ghost = min(field.distances[int(tile)] for tile in self.ghost_tiles.values())
+        field = distances(self.graph, move.destination).unwrap()
+        nearest_ghost = min(field[int(tile)] for tile in self.ghost_tiles.values())
         collectible = self.collectibles[int(move.destination)]
         collectible_value = 80 if collectible is Collectible.POWER_PELLET else 20
         if collectible is Collectible.NONE:

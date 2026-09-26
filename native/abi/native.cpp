@@ -1,6 +1,7 @@
 #include "pacman/native.h"
 #include "pacman/macros.h"
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <bit>
@@ -19,6 +20,7 @@ import pacman.options;
 import pacman.prediction;
 import pacman.simulation;
 import pacman.topology;
+import pacman.topology_cache;
 import pacman.threat;
 import pacman.types;
 
@@ -28,11 +30,6 @@ static_assert(offsetof(pac_simulation_input, ghost_order) == 48);
 static_assert(sizeof(pac_simulation_result) == 40);
 static_assert(offsetof(pac_simulation_result, died) == 32);
 #endif
-
-enum class pac_bfs_kernel : std::uint8_t {
-    graph,
-    masked,
-};
 
 struct pac_topology {
     size_t tile_count{};
@@ -46,7 +43,8 @@ struct pac_topology {
     std::unique_ptr<pacman::tile_index[]> option_queue{};
     std::atomic_flag workspace_lock{};
     pacman::topology_masks topology{};
-    pac_bfs_kernel bfs_kernel{pac_bfs_kernel::masked};
+    pacman::topology_cache cache{};
+    bool cache_ready{};
 };
 
 namespace {
@@ -128,13 +126,24 @@ fn topology_bfs_masked(pac_topology &topology, const uint16_t origin,
 
 fn topology_bfs(pac_topology &topology, const uint16_t origin,
                 std::span<uint32_t> distances) noexcept -> pac_status {
-    switch (topology.bfs_kernel) {
-    case pac_bfs_kernel::graph:
-        return topology_bfs_graph(topology, origin, distances);
-    case pac_bfs_kernel::masked:
-        return topology_bfs_masked(topology, origin, distances);
+    if (static_cast<size_t>(origin) >= topology.tile_count ||
+        distances.size() < topology.tile_count) {
+        return PAC_INVALID_ARGUMENT;
     }
-    return PAC_INTERNAL_ERROR;
+
+    if (!topology.cache_ready) {
+        const let graph = pacman::graph_view{
+            .tiles = {topology.tiles.get(), topology.tile_count},
+        };
+        if (!pacman::build_topology_cache(graph, topology.cache)) {
+            return PAC_INTERNAL_ERROR;
+        }
+        topology.cache_ready = true;
+    }
+
+    const let *row = topology.cache.distance_row(origin);
+    std::copy_n(row, topology.tile_count, distances.data());
+    return PAC_OK;
 }
 
 fn validate_topology_search(const pac_topology *topology, const uint16_t origin,
@@ -270,12 +279,12 @@ cfn PAC_API pac_topology_create(const pac_tile_neighbors *tiles,
         .exceptional_edges = {owned->exceptional_edges.get(), tile_count * 4},
         .exceptional_edge_count = 0,
     };
-    if (!pacman::build_topology_masks(
-            {.tiles = {owned->tiles.get(), tile_count}}, maze_width,
-            owned->topology)) {
+    const let graph = pacman::graph_view{
+        .tiles = {owned->tiles.get(), tile_count},
+    };
+    if (!pacman::build_topology_masks(graph, maze_width, owned->topology)) {
         return PAC_INVALID_ARGUMENT;
     }
-
     *output = owned.release();
     return PAC_OK;
 }

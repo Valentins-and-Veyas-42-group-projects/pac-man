@@ -2,6 +2,7 @@
 
 from dataclasses import replace
 
+from pacman.analyze.collectibles import CollectibleField
 from pacman.analyze.decision import analyze_decision
 from pacman.analyze.evaluation import PlayQuality
 from pacman.analyze.maze_graph import build_maze_graph
@@ -10,6 +11,7 @@ from pacman.analyze.simulation import SimulationRules
 from pacman.analyze.timeline import evaluation_loss, summarize_replay
 from pacman.analyze.topology import TileKind, classify_tile
 from pacman.replay.models import Frame, GamePhase, GhostState, Maze, Tick, TileIndex
+from pacman.replay.maze_codec import decode_collectibles
 from pacman.replay.store import ReplayStore
 from typed_errs import Err, Some
 
@@ -142,7 +144,30 @@ def run(limit: int = 5) -> int:
     ignored = 0
     frames = batch.value.frames
     death_ticks = tuple(frame.tick for frame in frames if frame.phase is GamePhase.DYING)
+    decoded_collectibles = decode_collectibles(
+        maze.initial_collectibles,
+        maze.width * maze.height,
+    )
+    if isinstance(decoded_collectibles, Err):
+        collectibles_valid = False
+        collectible_tiles = []
+    else:
+        collectibles_valid = True
+        collectible_tiles = list(decoded_collectibles.value)
+    change_index = 0
     for previous, current in zip(frames, frames[1:], strict=False):
+        while (
+            change_index < len(batch.value.collectible_changes)
+            and batch.value.collectible_changes[change_index].tick <= current.tick
+        ):
+            change = batch.value.collectible_changes[change_index]
+            tile_index = int(change.tile)
+            if 0 <= tile_index < len(collectible_tiles):
+                collectible_tiles[tile_index] = change.collectible
+            else:
+                collectibles_valid = False
+            change_index += 1
+
         if previous.player.direction is current.player.direction:
             continue
         player_tile = maze.tile_index(previous.player.position)
@@ -151,6 +176,9 @@ def run(limit: int = 5) -> int:
         if not (at_junction or pressured(previous) or near_tick(current.tick, death_ticks, DEATH_CONTEXT_TICKS)):
             ignored += 1
             continue
+        if not collectibles_valid:
+            skipped += 1
+            continue
         processed = analyze_decision(
             graph.value,
             maze,
@@ -158,6 +186,7 @@ def run(limit: int = 5) -> int:
             replace(previous, tick=current.tick),
             current.player.direction,
             SimulationRules(horizon_ticks=4),
+            Some(CollectibleField(tuple(collectible_tiles))),
         )
         if isinstance(processed, Err):
             skipped += 1

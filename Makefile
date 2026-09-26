@@ -17,7 +17,7 @@ MYPY = uv run mypy
 PYTEST = uv run pytest
 TY = uv run ty
 
-.PHONY: all install run debug clean lint lint-strict test typecheck native native-test native-sanitize native-benchmark prediction-benchmark analysis-benchmark wasm wasm-test package
+.PHONY: all install run debug clean lint lint-strict test typecheck native native-test native-sanitize native-benchmark prediction-benchmark analysis-benchmark wasm wasm-test package compiledb
 
 all: install $(CPP_TARGET)
 
@@ -95,3 +95,6 @@ wasm:
 
 package:
 	$(UV) build --wheel
+
+compiledb:
+	xmake project -k compile_commands .build

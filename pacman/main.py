@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from cli_fw import Command, arg
 from typed_errs import Err, Ok, Result, catch_bubble
 
+from .analyze.distance_backend import active_distance_backend
 from .config import ConfigError, load_config
 
 
@@ -34,6 +35,7 @@ def run(args: MainArgs) -> Result[None, ConfigError]:
 
 def main() -> None:
     """Entry point: `python3 pac-man.py <config.json>`."""
+    active_distance_backend()
     root = Command(
         name="pac-man",
         short="A Pac-Man recreation",

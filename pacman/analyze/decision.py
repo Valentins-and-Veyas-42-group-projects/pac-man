@@ -77,15 +77,19 @@ def analyze_decision(
     frame: Frame,
     played_action: Direction,
     rules: SimulationRules,
+    known_collectibles: Option[CollectibleField] = Nothing(),
 ) -> Result[DecisionAnalysis, DecisionAnalysisError]:
     """Evaluate one recorded choice against bounded alternatives.
 
     Returns:
         Composed tactical analysis or the stage that failed.
     """
-    collectible_field = reconstruct_collectibles(maze, changes, frame.tick)
-    if isinstance(collectible_field, Err):
-        return decision_err(DecisionAnalysisError.COLLECTIBLES)
+    if isinstance(known_collectibles, Some):
+        collectible_field = known_collectibles
+    else:
+        collectible_field = reconstruct_collectibles(maze, changes, frame.tick)
+        if isinstance(collectible_field, Err):
+            return decision_err(DecisionAnalysisError.COLLECTIBLES)
 
     predictions: list[GhostPrediction] = []
     for ghost in frame.ghosts:
