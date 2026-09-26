@@ -73,12 +73,33 @@ def lookup_timing(output: str) -> float | None:
 def show_row(name: str, python: float | None, native: float | None, wasm: float | None) -> None:
     """Print measured microseconds and backend speedups against Python."""
     def cell(value: float | None) -> str:
-        return f"{value:8.2f}" if value is not None else "       -"
+        return f"{value:.2f} µs" if value is not None else "-"
 
     def ratio(value: float | None) -> str:
-        return f"{python / value:6.2f}x" if python is not None and value is not None else "     -"
+        return f"{python / value:.2f}×" if python is not None and value is not None else "-"
 
-    print(f"{name:25} {cell(python)} {cell(native)} {cell(wasm)} {ratio(native)} {ratio(wasm)}")
+    print(table_row(name, cell(python), cell(native), cell(wasm), ratio(native), ratio(wasm)))
+
+
+def table_row(name: str, python: str, native: str, wasm: str, native_ratio: str, wasm_ratio: str) -> str:
+    """Keep labels, units, and ratios in the same fixed columns.
+
+    Returns:
+        One terminal-width table row.
+    """
+    return (
+        f" {name:<20} │ {python:>11} │ {native:>11} │ {wasm:>11} "
+        f"│ {native_ratio:>7} │ {wasm_ratio:>7}"
+    )
+
+
+def table_rule() -> str:
+    """Match the table's column widths without ANSI escape codes.
+
+    Returns:
+        A separator spanning every column.
+    """
+    return " " + "─" * 20 + "─┼─" + "─┼─".join("─" * width for width in (11, 11, 11, 7, 7))
 
 
 def main() -> int:
@@ -114,12 +135,22 @@ def main() -> int:
             return 1
         outputs.append(output)
     bfs, prediction, analysis, sanitized = outputs
+    bfs_modes = (
+        ("Graph, one shot", "graph one-shot"),
+        ("Masked, one shot", "masked one-shot"),
+        ("Graph, cached", "graph cached"),
+        ("Masked, cached", "masked cached"),
+        ("Selected, cached", "selected cached"),
+        ("Selected, batch", "selected batch"),
+    )
     required = (
-        (bfs, "Python BFS"), (bfs, "C++ selected cached"), (bfs, "WASM selected cached"),
+        (bfs, "Python BFS"),
+        *((bfs, f"{prefix} {mode}") for _, mode in bfs_modes for prefix in ("C++", "WASM")),
         (prediction, "Python prediction"), (prediction, "C++ cached prediction"),
         (prediction, "WASM cached prediction"),
         (analysis, "Python reference"), (analysis, "Native C++ via Python"),
         (analysis, "WASM Web Worker"), (analysis, "WASM branch search"),
+        (analysis, "Python branch"), (analysis, "Native branch"),
         (sanitized, "WASM branch search"),
     )
     if any(timing(output, label) is None for output, label in required):
@@ -128,18 +159,18 @@ def main() -> int:
             print(output, file=sys.stderr)
         return 1
 
-    print("Median time per operation (us; lower is faster). Ratios are Python/backend.")
-    print(f"{'Operation':25} {'Python':>8} {'Native':>8} {'WASM':>8} {'Py/N':>6} {'Py/W':>6}")
+    print(f"\n{color('Backend speeds', '1')}  median time, lower is faster")
+    print("  Speedup is relative to Python. Each value includes its unit.")
+    print(color(table_rule(), "2"))
+    print(table_row("Operation", "Python", "Native", "WASM", "Native×", "WASM×"))
+    print(color(table_rule(), "2"))
+    print(color("  Pathfinding (per distance field)", "36"))
     python_bfs = timing(bfs, "Python BFS")
-    for name, native_label, wasm_label in (
-        ("BFS graph one-shot", "C++ graph one-shot", ""),
-        ("BFS masked one-shot", "C++ masked one-shot", ""),
-        ("BFS graph cached", "C++ graph cached", ""),
-        ("BFS masked cached", "C++ masked cached", ""),
-        ("BFS selected cached", "C++ selected cached", "WASM selected cached"),
-        ("BFS selected batch", "C++ selected batch", ""),
-    ):
-        show_row(name, python_bfs, timing(bfs, native_label), timing(bfs, wasm_label) if wasm_label else None)
+    for name, mode in bfs_modes:
+        show_row(name, python_bfs, timing(bfs, f"C++ {mode}"), timing(bfs, f"WASM {mode}"))
+    print()
+    print(color("  Analysis", "36"))
+    print("  Per prediction, analyzed state, and searched action, respectively.")
     show_row(
         "Ghost prediction", timing(prediction, "Python prediction"),
         timing(prediction, "C++ cached prediction"), timing(prediction, "WASM cached prediction"),
@@ -154,32 +185,42 @@ def main() -> int:
         "Prediction + actions", float(analysis_python[0]), float(analysis_native[0]),
         timing(analysis, "WASM Web Worker"),
     )
-    show_row("Full decision", float(analysis_python[1]), float(analysis_native[1]), None)
-    show_row("Branch search", None, None, timing(analysis, "WASM branch search"))
-    print("\nASan + UBSan (native debug; Python/WASM parity checked again):")
+    show_row(
+        "Branch search", timing(analysis, "Python branch"),
+        timing(analysis, "Native branch"), timing(analysis, "WASM branch search"),
+    )
+    print(color(table_rule(), "2"))
+    print("  One-shot native encodes the Python graph on each call; WASM gets flat bytes.")
+    print("  WASM analysis includes worker IPC; native analysis includes ctypes.")
+    print("\nFull decision through Python")
+    print(f"  {'Python':20} {float(analysis_python[1]):.2f} µs/decision")
+    print(
+        f"  {'Native-backed':20} {float(analysis_native[1]):.2f} µs/decision"
+        f"  ({float(analysis_python[1]) / float(analysis_native[1]):.2f}×)"
+    )
+    print("  The WASM worker exposes the measured kernels above, not a full decision call.")
+
+    print("\nASan + UBSan (native debug; parity checked again)")
     san_native = re.findall(r"(?m)^\s*Native C\+\+ via Python\s+([\d.]+)", sanitized)
     if len(san_native) != 2:
         print("sanitizer benchmark did not report both native operations", file=sys.stderr)
         return 1
-    print(
-        f"  prediction + actions {float(san_native[0]):.2f} us/state; "
-        f"full decision {float(san_native[1]):.2f} us/decision"
-    )
+    print(f"  {'Prediction + actions':20} {float(san_native[0]):.2f} µs/state")
+    print(f"  {'Full decision':20} {float(san_native[1]):.2f} µs/decision")
     release_lookup = lookup_timing(bfs)
     sanitizer_lookup = lookup_timing(sanitized)
     if release_lookup is None or sanitizer_lookup is None:
         print("direct C++ cached lookup benchmark did not report a timing", file=sys.stderr)
         return 1
-    print(
-        f"\nDirect C++ cached lookup, 128-tile ring: "
-        f"release {release_lookup:.2f}, sanitized {sanitizer_lookup:.2f} us/call"
-    )
-    print("\nRun separately:")
-    print("  BFS + WASM: make native-benchmark")
-    print("  Prediction: make prediction-benchmark")
-    print(f"  Analysis:   make analysis-benchmark BENCH_ARGS='{analysis_args}'")
-    print(f"  Sanitizers: make analysis-benchmark-sanitize BENCH_ARGS='{analysis_args}'")
-    print("  - means that operation has no equivalent benchmark for that backend.")
+    print("\nC++ cached lookup, 128-tile ring")
+    print(f"  {'Release':20} {release_lookup:.2f} µs/call")
+    print(f"  {'Sanitized':20} {sanitizer_lookup:.2f} µs/call")
+
+    print("\nRun separately")
+    print("  make native-benchmark")
+    print("  make prediction-benchmark")
+    print("  make analysis-benchmark")
+    print("  make analysis-benchmark-sanitize")
     return 0
 
 
