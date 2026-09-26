@@ -101,7 +101,8 @@ analysis-benchmark-sanitize:
 	xmake f -c -p wasm -a wasm32 -m release
 	xmake build pacman-wasm
 	xmake f -c -m debug --toolchain=clang -o .build/sanitize --policies=build.sanitizer.address,build.sanitizer.undefined
-	xmake build -r pacman-native pacman-native-benchmark
+	xmake build -r pacman-native-tests pacman-native pacman-native-benchmark
+	xmake run pacman-native-tests
 	xmake run pacman-native-benchmark
 	@asan_runtime=$$(clang++ -print-file-name=libclang_rt.asan-$$(uname -m).so); \
 	test -f "$$asan_runtime" || { echo "Clang ASan runtime unavailable: $$asan_runtime" >&2; exit 1; }; \
