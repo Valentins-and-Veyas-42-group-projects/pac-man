@@ -14,17 +14,16 @@ import pacman.types;
 
 export namespace pacman {
 
-/*
-    before move                 after move
-
-    Pac-Man at A  ────────────> Pac-Man at B
-                                    │
-                           eat item, then resolve
-                           ghost contact at B
-
-    One step owns no buffers. The caller keeps each branch's consumed-item
-    bitset and supplies contact facts from the exact ghost prediction.
-*/
+// Resolve the destination item before ghost contact so a power pellet can
+// protect Pac-Man on the same move. Branches own separate consumed-item sets;
+// this step borrows both snapshots and the predicted contact facts.
+//
+//    before move                 after move
+//
+//    Pac-Man at A  ────────────> Pac-Man at B
+//                                    │
+//                           eat item, then resolve
+//                           ghost contact at B
 
 enum class collectible : std::uint8_t {
     none = 0,
@@ -67,8 +66,8 @@ struct simulation_state {
     bool died{};
 };
 
-/// Advance one branch, consuming the destination item before ghost contact.
-/// The output snapshot must not overlap the input snapshot.
+/// Advance one branch into a distinct consumed-item snapshot.
+/// Returns false for invalid contacts, destination, or snapshot storage.
 [[nodiscard]]
 fn advance_simulation_state(
     const simulation_state &before,

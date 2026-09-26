@@ -29,7 +29,8 @@ struct threat_field_view {
     std::span<std::uint8_t> owners;
 };
 
-/// Keep the earliest dangerous ghost arrival for every tile.
+/// Keep the earliest dangerous arrival and all ghosts tied at that tick.
+/// Ignores frightened ghosts; returns false for invalid buffer sizes or IDs.
 inline fn
 combine_threat_distances(const std::span<const ghost_origin> ghosts,
                          const std::span<const path_distance> ghost_distances,

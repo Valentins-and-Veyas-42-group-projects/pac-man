@@ -24,35 +24,31 @@ struct topology_cache {
     std::size_t tile_count{};
     std::size_t stride{};
 
-    // [source * stride + destination]
+    // A cache-line-sized stride keeps each source at the same alignment
+    // within a line. Index each row by destination.
     std::vector<cached_distance> distances;
 
-    // [source * stride + destination]
-    //
-    // bit 0 = up
-    // bit 1 = right
-    // bit 2 = down
-    // bit 3 = left
+    // Keep every tied shortest first move, so callers need no tie-breaking BFS.
+    // Bits follow direction order: up, right, down, left.
     std::vector<std::uint8_t> shortest_dirs;
 
-    // [tile * 4 + direction]
-    //
-    // Only valid when the corresponding bit in legal_dirs[tile]
-    // is set.
+    // Dense direction lookup avoids searching each tile's move list.
+    // Read an entry only when legal_dirs[tile] contains that direction.
     std::vector<tile_index> neighbors;
 
-    // One 4-bit mask per tile.
     std::vector<std::uint8_t> legal_dirs;
 
     std::vector<std::uint8_t> degree;
     std::vector<std::uint8_t> intersection;
 
+    /// Return a padded distance row for a valid source tile.
     [[nodiscard]]
     inline fn distance_row(const tile_index source) const noexcept
         -> const cached_distance * {
         return distances.data() + static_cast<std::size_t>(source) * stride;
     }
 
+    /// Return first-move masks for a valid source tile.
     [[nodiscard]]
     inline fn dirs_row(const tile_index source) const noexcept
         -> const std::uint8_t * {
@@ -60,15 +56,17 @@ struct topology_cache {
     }
 };
 
+/// Round row length to a cache-line-sized stride for predictable row layout.
 [[nodiscard]]
 inline fn cache_stride(const std::size_t tile_count) noexcept -> std::size_t {
-    // 16 uint32_t distances = one 64-byte cache line.
     constexpr std::size_t entries_per_cache_line = 64 / sizeof(cached_distance);
 
     return (tile_count + entries_per_cache_line - 1) &
            ~(entries_per_cache_line - 1);
 }
 
+/// Precompute reusable graph lookups and all-pairs shortest path data.
+/// Returns false if graph validation or cache allocation fails.
 [[nodiscard]]
 fn build_topology_cache(const graph_view graph, topology_cache &output) noexcept
     -> bool {
@@ -95,9 +93,7 @@ fn build_topology_cache(const graph_view graph, topology_cache &output) noexcept
         output.degree.resize(tile_count);
         output.intersection.resize(tile_count);
 
-        /*
-         * Precompute direct topology information.
-         */
+        // Direction-indexed edges and tile degree serve later hot lookups.
         for (std::size_t source = 0; source < tile_count; ++source) {
             const let &tile = graph.tiles[source];
 
@@ -127,11 +123,7 @@ fn build_topology_cache(const graph_view graph, topology_cache &output) noexcept
             }
         }
 
-        /*
-         * One reusable BFS workspace.
-         *
-         * We allocate these ONCE, then reuse them for every source.
-         */
+        // Reuse one workspace across sources instead of allocating per BFS.
         std::vector<path_distance> temporary_distances(tile_count);
 
         std::vector<bitboard_word> visited_words(word_count);
@@ -151,11 +143,7 @@ fn build_topology_cache(const graph_view graph, topology_cache &output) noexcept
             };
         };
 
-        /*
-         * Precompute ALL shortest distances.
-         *
-         * BFS is now startup work rather than per-frame work.
-         */
+        // Pay for each source BFS once, then answer distance queries by lookup.
         for (std::size_t source = 0; source < tile_count; ++source) {
             if (!bfs_distances(graph, static_cast<tile_index>(source),
                                temporary_distances, make_view(visited_words),
@@ -172,14 +160,8 @@ fn build_topology_cache(const graph_view graph, topology_cache &output) noexcept
             }
         }
 
-        /*
-         * Precompute which directions preserve a shortest path.
-         *
-         * Example:
-         *
-         * 0010 = right
-         * 0101 = up OR down
-         */
+        // A first move is shortest exactly when its remaining distance is
+        // one less. Keep ties so later choices retain all valid routes.
         for (std::size_t source = 0; source < tile_count; ++source) {
             const let *source_distances =
                 output.distance_row(static_cast<tile_index>(source));

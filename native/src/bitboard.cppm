@@ -8,8 +8,8 @@ module;
 
 export module pacman.bitboard;
 
-// One bit tells us whether a maze tile belongs to a set.
-// The bits sit next to each other in 64-bit words, ready for fast set math.
+// Tile sets use dense words so a BFS layer can combine many tiles at once.
+// Callers keep the tile count because the last word may contain unused bits.
 //
 // tile      0   1   2   3          63     64  65
 //          +---+---+---+---+       +---+  +---+---+
@@ -201,7 +201,7 @@ struct tile_set_view {
     }
 };
 
-/// Writes the intersection of equally sized, already validated sets.
+/// Intersect validated sets without repeating checks inside a BFS layer.
 inline fn bitboard_and_unchecked(const const_tile_set_view lhs,
                                  const const_tile_set_view rhs,
                                  tile_set_view output) noexcept -> void {
@@ -210,7 +210,8 @@ inline fn bitboard_and_unchecked(const const_tile_set_view lhs,
     }
 }
 
-/// ORs a non-overlapping source shifted left into validated output storage.
+/// Shift source bits across word boundaries into a separate output set.
+/// The source must not overlap output, since earlier writes would be shifted again.
 inline fn or_shift_left_unchecked(const const_tile_set_view source,
                                   const std::size_t shift,
                                   tile_set_view output) noexcept -> void {
@@ -234,7 +235,8 @@ inline fn or_shift_left_unchecked(const const_tile_set_view source,
     }
 }
 
-/// ORs a non-overlapping source shifted right into validated output storage.
+/// Shift source bits across word boundaries into a separate output set.
+/// The source must not overlap output, since earlier writes would be shifted again.
 inline fn or_shift_right_unchecked(const const_tile_set_view source,
                                    const std::size_t shift,
                                    tile_set_view output) noexcept -> void {

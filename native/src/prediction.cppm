@@ -15,23 +15,17 @@ import pacman.graph;
 import pacman.threat;
 import pacman.types;
 
-/*
-    Prediction branches are unique by (tile, heading). A tile/heading pair
-    maps directly to one seen-array index, so a generation stamp replaces a
-    scan of the current frontier when rejecting duplicates.
-*/
+// Heading remains part of a prediction state because it changes which reverse
+// moves are legal. A tick stamp deduplicates states without clearing or
+// scanning the seen array for every frontier.
+//
+//    tick 0              tick 1              tick 2
+//
+//      [A ->]       [B ->]     [D v]      [C ->] [E v]
+//         \          /           \          /
+//          movement branches carry their direction
 
 export namespace pacman {
-
-/*
-    tick 0              tick 1              tick 2
-
-      [A ->]       [B ->]     [D v]      [C ->] [E v]
-         \          /           \          /
-          movement branches carry their direction
-
-    States are unique by (tile, direction), not merely by tile.
-*/
 
 inline constexpr std::uint32_t no_prediction =
     std::numeric_limits<std::uint32_t>::max();
@@ -55,7 +49,7 @@ struct prediction_workspace {
     std::span<std::uint32_t> seen;
 };
 
-/// Return the direction opposite to `heading`.
+/// Return the reverse heading used when a ghost has no forward move.
 [[nodiscard]]
 constexpr fn opposite(const direction heading) noexcept -> direction {
     switch (heading) {
@@ -79,7 +73,6 @@ fn append_unique(const move candidate, std::span<prediction_state> output,
                  std::size_t &output_count,
                  const std::span<std::uint32_t> seen,
                  const std::uint32_t generation) noexcept -> bool {
-    // A stamped tile/heading lookup avoids scanning the current frontier.
     const let state_id = static_cast<std::size_t>(candidate.destination) * 4 +
                          static_cast<std::size_t>(candidate.heading);
     if (seen[state_id] == generation) {
@@ -108,6 +101,8 @@ fn append_legal_moves(const graph_view graph, const prediction_state state,
             return candidate.heading != reverse;
         });
 
+    // Ghosts turn back only at dead ends; retaining heading here matters
+    // because two arrivals at one tile can have different next moves.
     for (const let candidate : moves) {
         if (has_forward && candidate.heading == reverse) {
             continue;
@@ -124,8 +119,8 @@ fn append_legal_moves(const graph_view graph, const prediction_state state,
 
 export namespace pacman {
 
-/// Fill earliest arrival ticks for all ghost-reachable tiles through horizon.
-/// Returns false when the graph or caller-owned workspace is invalid.
+/// Fill earliest ghost arrivals through horizon using caller-owned buffers.
+/// Returns false for invalid inputs or insufficient workspace.
 [[nodiscard]]
 fn predict_ghost(const graph_view graph, const ghost_prediction_input ghost,
                  const std::size_t horizon,
@@ -178,8 +173,8 @@ fn predict_ghost(const graph_view graph, const ghost_prediction_input ghost,
     return true;
 }
 
-/// Combine ghost predictions into the earliest dangerous-arrival field.
-/// Returns false when an input, prediction, or output buffer is invalid.
+/// Combine dangerous ghosts' earliest arrivals and record tied owners.
+/// Returns false for invalid inputs or insufficient workspace.
 [[nodiscard]]
 fn build_predicted_threat_field(
     const graph_view graph,

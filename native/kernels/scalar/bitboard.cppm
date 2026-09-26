@@ -7,7 +7,7 @@ export module pacman.kernel.scalar;
 
 export namespace pacman::kernel::scalar {
 
-/// Computes a baseline multiword bitwise OR.
+/// OR word arrays into caller storage, keeping the scalar reference kernel simple.
 void bitboard_or(const std::uint64_t *lhs, const std::uint64_t *rhs,
                  const std::size_t word_count, std::uint64_t *output) noexcept {
     for (std::size_t index = 0; index < word_count; ++index) {

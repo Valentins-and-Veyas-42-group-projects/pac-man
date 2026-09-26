@@ -16,13 +16,12 @@ import pacman.types;
 
 export namespace pacman {
 
-/*
-                  danger arrives at tick 2
-                             x
-    Pac-Man -> first tile -> safe region -> intersection
-
-    Each legal first move receives its own bounded safe flood fill.
-*/
+// Each first move gets its own reachable region. A tile is safe only if the
+// player arrives before the earliest dangerous ghost; ties are unsafe.
+//
+//                  danger arrives at tick 2
+//                             x
+//    Pac-Man -> first tile -> safe region -> intersection
 
 struct action_evaluation {
     direction action{};
@@ -44,7 +43,8 @@ struct action_evaluation_buffer {
     std::span<tile_index> reachable;
 };
 
-/// Evaluate every legal first move against an earliest-arrival threat field.
+/// Evaluate each legal first move against earliest ghost arrivals.
+/// Writes each move's safe region into its own tile_count-sized output slice.
 [[nodiscard]]
 fn evaluate_actions(const graph_view graph,
                     const std::span<const std::uint32_t> threat_eta,
@@ -75,6 +75,7 @@ fn evaluate_actions(const graph_view graph,
         ++action_count;
 
         const let first_eta = threat_eta[first_move.destination];
+        // The first step happens at tick one, even if the starting tile is safe.
         if (first_eta != no_threat && first_eta <= 1) {
             continue;
         }

@@ -25,6 +25,8 @@ import pacman.threat;
 import pacman.types;
 
 #ifdef __EMSCRIPTEN__
+// JavaScript reads these structs directly from Wasm memory, so layout changes
+// must fail the build instead of silently corrupting the ABI boundary.
 static_assert(sizeof(pac_simulation_input) == 56);
 static_assert(offsetof(pac_simulation_input, ghost_order) == 48);
 static_assert(sizeof(pac_simulation_result) == 40);
@@ -51,6 +53,8 @@ struct pac_topology {
 namespace {
 
 struct workspace_guard {
+    // Cached distance construction and all borrowed work buffers share this
+    // topology. Serialize access so callers can reuse one handle safely.
     explicit workspace_guard(std::atomic_flag &lock) noexcept : lock_{lock} {
         while (lock_.test_and_set(std::memory_order_acquire)) {
         }
@@ -132,6 +136,8 @@ fn topology_bfs(pac_topology &topology, const uint16_t origin,
         return PAC_INVALID_ARGUMENT;
     }
 
+    // Many handles only use masked BFS or prediction. Build the all-pairs
+    // cache on first distance query to avoid their quadratic startup cost.
     if (!topology.cache_ready) {
         const let graph = pacman::graph_view{
             .tiles = {topology.tiles.get(), topology.tile_count},

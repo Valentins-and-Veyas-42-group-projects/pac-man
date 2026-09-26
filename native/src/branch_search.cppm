@@ -18,29 +18,16 @@ import pacman.graph;
 import pacman.simulation;
 import pacman.types;
 
-/*
-    Branch search keeps the collectible bitset for exact state comparisons,
-    but updates an XOR fingerprint only when a collectible is consumed.
-    Hash matches are still checked against the full bitset.
-
-    Frontier slots alternate between two buffers and are overwritten each
-    tick. Persistent trace nodes preserve ancestry without copying each path;
-    only the winning path is reconstructed at the end.
-*/
+// The consumed-item bitset is part of branch identity. Updating its hash only
+// when an item is consumed avoids rescanning it for every child; full equality
+// still resolves hash collisions. Frontier slots are reused each tick, while
+// persistent trace nodes keep paths alive until the winner is known.
 
 export namespace pacman {
 
-/*
-    require one first move
-             │
-             ▼
-         frontier at tick 1
-          /      |      \
-     all legal next moves  ...  terminal branches
-
-    Equal tactical states merge at each tick. Only the highest-scoring
-    branch survives a merge, exactly as in the Python reference.
-*/
+// For each required first move, equal tactical states at a given tick merge.
+// Retaining the highest score preserves the reference search's choice while
+// bounding the number of continuations explored.
 
 enum class branch_search_status : std::uint8_t {
     ok,
@@ -60,7 +47,7 @@ struct prediction_grid {
     std::size_t tile_count{};
     std::size_t tick_count{};
 
-    /// Return the ghost state at one tick, ghost index, and tile.
+    /// Read a validated grid's state at one tick, ghost index, and tile.
     [[nodiscard]]
     fn at(const std::size_t tick, const std::size_t ghost,
           const tile_index tile) const noexcept -> std::uint8_t {
@@ -74,13 +61,11 @@ namespace pacman::detail {
 
 struct branch_slot {
     simulation_state state{};
-    // XORing consumed-tile fingerprints avoids rescanning the bitset per child.
     std::uint64_t collectible_hash{};
     std::size_t trace{};
 };
 
 struct trace_node {
-    // Frontier slots are reused, so path ancestry must outlive each frontier.
     std::size_t parent{};
     tile_index tile{};
 };
@@ -106,13 +91,14 @@ fn hash_branch(const branch_slot &slot) noexcept -> std::size_t {
 [[nodiscard]]
 constexpr fn collectible_fingerprint(const std::size_t id) noexcept
     -> std::uint64_t {
+    // Spread adjacent tile IDs before XORing them into the consumed-set hash.
     std::uint64_t value = static_cast<std::uint64_t>(id) + 0x9e3779b97f4a7c15ull;
     value = (value ^ (value >> 30)) * 0xbf58476d1ce4e5b9ull;
     value = (value ^ (value >> 27)) * 0x94d049bb133111ebull;
     return value ^ (value >> 31);
 }
 
-// Hashes filter candidates; same_branch still checks exact state equality.
+// Hashes only narrow candidates; equality must compare consumed items too.
 [[nodiscard]]
 fn same_branch(const simulation_state &lhs, const simulation_state &rhs,
                const std::span<const std::uint64_t> lhs_consumed,
@@ -156,6 +142,8 @@ fn contacts_for(const prediction_grid prediction, const tile_index origin,
     std::size_t count = 0;
     for (const let ghost : prediction.ghost_order) {
         let value = prediction.at(tick, ghost, destination);
+        // A ghost that swaps tiles with Pac-Man still makes contact, even
+        // though it is absent from Pac-Man's destination at the tick's end.
         if (value == 0 && tick > 0 && prediction.at(tick, ghost, origin) != 0 &&
             prediction.at(tick - 1, ghost, destination) != 0) {
             value = prediction.at(tick, ghost, origin);
@@ -174,11 +162,10 @@ fn contacts_for(const prediction_grid prediction, const tile_index origin,
 
 export namespace pacman {
 
-/// Search continuations after the required first action.
+/// Search continuations after one required first action.
 ///
-/// On success, writes the best terminal state to `result` and its path to
-/// `best_path`. Returns `invalid_input`, `out_of_memory`, or
-/// `capacity_exceeded` when the search cannot complete.
+/// Writes the best terminal state and its path on success. Capacity exhaustion
+/// is reported instead of silently dropping branches that could win.
 [[nodiscard]]
 fn search_action(const graph_view graph,
                  const std::span<const collectible> initial_collectibles,
@@ -228,6 +215,8 @@ fn search_action(const graph_view graph,
     }
 
     const let slots_count = state_capacity * 2;
+    // Current and next layers alternate, so slot storage stays bounded by
+    // state_capacity even when the search horizon is long.
     std::unique_ptr<detail::branch_slot[]> slots{
         new (std::nothrow) detail::branch_slot[slots_count]{}};
     const let consumed_words = tile_count / 64 + (tile_count % 64 != 0);
@@ -243,6 +232,7 @@ fn search_action(const graph_view graph,
         return branch_search_status::invalid_input;
     }
     const let trace_capacity = horizon * state_capacity * 4 + 2;
+    // Each expanded state can produce at most four trace nodes per tick.
     std::unique_ptr<detail::trace_node[]> traces{
         new (std::nothrow) detail::trace_node[trace_capacity]{}};
     const let table_size = state_capacity * 4 + 1;
@@ -341,6 +331,8 @@ fn search_action(const graph_view graph,
                 slots[candidate_slot].trace = trace_count++;
 
                 const let hash = detail::hash_branch(slots[candidate_slot]);
+                // Open addressing uses zero for empty; stored indices are
+                // offset by one so slot zero remains representable.
                 let table_index = hash % table_size;
                 while (table[table_index] != 0) {
                     const let existing_slot =

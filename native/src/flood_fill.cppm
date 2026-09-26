@@ -8,9 +8,8 @@ module;
 
 export module pacman.flood_fill;
 
-// Flood fill starts at one tile and keeps growing until it cannot go farther.
-// The frontier is the newest outer edge of that growing region. Walls are
-// missing graph edges, so the frontier naturally stops when it reaches them.
+// Expanding only the newest frontier avoids walking the full reachable region
+// on every step. The graph's missing edges enforce walls and maze boundaries.
 //
 //       before              after one step
 //
@@ -56,7 +55,7 @@ force_inline fn expand_frontier_unchecked(const graph_view graph,
                     bitboard_word{1} << (destination % bits_per_word);
             }
 
-            // Clear the lowest set bit to visit frontier tiles only.
+            // Drop the tile just processed without scanning unset positions.
             pending &= pending - 1;
         }
     }
@@ -66,7 +65,7 @@ force_inline fn expand_frontier_unchecked(const graph_view graph,
 
 export namespace pacman {
 
-/// Expands one checked frontier into its directly reachable neighbors.
+/// Expand a checked frontier into a distinct output buffer.
 [[nodiscard]]
 fn expand_frontier(const graph_view graph, const const_tile_set_view frontier,
                    tile_set_view next) noexcept -> bool {
@@ -87,7 +86,8 @@ fn expand_frontier(const graph_view graph, const const_tile_set_view frontier,
     return true;
 }
 
-/// Computes every tile reachable from an origin using reusable buffers.
+/// Fill visited with all tiles reachable from origin using distinct worksets.
+/// Returns false when the graph, origin, or buffers violate that contract.
 [[nodiscard]]
 fn flood_reachable(const graph_view graph, const tile_index origin,
                    tile_set_view visited, tile_set_view frontier,
@@ -122,7 +122,7 @@ fn flood_reachable(const graph_view graph, const tile_index origin,
     }
 
     while (frontier.any()) {
-        // All graph and buffer validation happens before this hot loop.
+        // Reuse the unchecked expansion after validating the graph and buffers.
         detail::expand_frontier_unchecked(graph, frontier.as_const(), next);
 
         if (!next.and_not_with(visited.as_const())) {

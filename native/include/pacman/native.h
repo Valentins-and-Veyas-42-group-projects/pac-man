@@ -70,8 +70,9 @@ typedef struct pac_action_evaluation {
 typedef struct pac_simulation_input {
     const uint8_t *collectibles;
     size_t collectible_count;
-    /* (horizon + 1) * 4 * tile_count bytes, ordered by tick, ghost, tile.
-       0 = absent, 1 = dangerous, 2 = frightened, 3 = eaten. */
+    /* Dense tick/ghost/tile grid for direct branch-search lookups.
+       0 = absent, 1 = dangerous, 2 = frightened, 3 = eaten.
+       Length: (horizon + 1) * 4 * tile_count bytes. */
     const uint8_t *prediction_grid;
     size_t prediction_count;
     const uint32_t *ghost_combo_scores;
@@ -102,20 +103,21 @@ typedef struct pac_simulation_result {
 
 typedef struct pac_topology pac_topology;
 
-/* Return the supported stable C ABI version. */
+/* Return the ABI version so callers can reject incompatible struct layouts. */
 PAC_API uint32_t pac_abi_version(void);
 
-/* Compute a multiword bitwise OR into caller-owned output storage. */
+/* OR word_count words into caller-owned output storage. */
 PAC_API pac_status pac_bitboard_or(const uint64_t *lhs, const uint64_t *rhs,
                                    size_t word_count, uint64_t *output);
 
-/* Compute shortest distances, writing UINT32_MAX for unreachable tiles. */
+/* Write shortest distances or UINT32_MAX for unreachable tiles.
+   This one-shot call builds directional masks for the supplied maze. */
 PAC_API pac_status pac_bfs_distances(const pac_tile_neighbors *tiles,
                                      size_t tile_count, size_t maze_width,
                                      uint16_t origin, uint32_t *distances,
                                      size_t distance_capacity);
 
-/* Create reusable immutable topology and BFS workspace. */
+/* Copy and validate a maze for repeated queries. Destroy *output when done. */
 PAC_API pac_status pac_topology_create(const pac_tile_neighbors *tiles,
                                        size_t tile_count, size_t maze_width,
                                        pac_topology **output);
@@ -123,62 +125,67 @@ PAC_API pac_status pac_topology_create(const pac_tile_neighbors *tiles,
 /* Release a topology created by pac_topology_create. Accepts NULL. */
 PAC_API void pac_topology_destroy(pac_topology *topology);
 
-/* Compute distances using a reusable topology. Calls are synchronized. */
+/* Write distances from origin, building a shared all-pairs cache on first use.
+   Queries on the same handle are serialized. */
 PAC_API pac_status pac_topology_bfs_distances(pac_topology *topology,
                                               uint16_t origin,
                                               uint32_t *distances,
                                               size_t distance_capacity);
 
-/* Compute distances through the cached graph-walking kernel. */
+/* Write distances by walking the copied graph; useful for kernel comparison. */
 PAC_API pac_status pac_topology_bfs_distances_graph(pac_topology *topology,
                                                     uint16_t origin,
                                                     uint32_t *distances,
                                                     size_t distance_capacity);
 
-/* Compute distances through the cached masked kernel. */
+/* Write distances with prebuilt directional masks and explicit special edges. */
 PAC_API pac_status pac_topology_bfs_distances_masked(pac_topology *topology,
                                                      uint16_t origin,
                                                      uint32_t *distances,
                                                      size_t distance_capacity);
 
-/* Compute consecutive distance fields using the selected cached kernel. */
+/* Write one tile_count-sized distance slice per origin in input order. */
 PAC_API pac_status pac_topology_bfs_many(pac_topology *topology,
                                          const uint16_t *origins,
                                          size_t origin_count,
                                          uint32_t *distance_fields,
                                          size_t distance_capacity);
 
-/* Compute player distances and the earliest dangerous-ghost arrivals. */
+/* Write player distances and earliest dangerous arrivals in one locked call.
+   threat_owners marks every ghost tied for the earliest arrival. */
 PAC_API pac_status pac_topology_analyze_distances(
     pac_topology *topology, uint16_t player_origin,
     const pac_ghost_origin *ghosts, size_t ghost_count,
     uint32_t *player_distances, size_t player_distance_capacity,
     uint32_t *threat_eta, uint8_t *threat_owners, size_t threat_capacity);
 
-/* Compute only the earliest dangerous-ghost arrivals. */
+/* Write earliest dangerous arrivals and tied ghost-owner masks. */
 PAC_API pac_status pac_topology_threat_field(
     pac_topology *topology, const pac_ghost_origin *ghosts, size_t ghost_count,
     uint32_t *threat_eta, uint8_t *threat_owners, size_t threat_capacity);
 
-/* Predict bounded ghost movement and combine earliest dangerous arrivals. */
+/* Predict ghost moves through horizon and write earliest dangerous arrivals.
+   threat_owners marks ties; non-dangerous ghosts do not affect the field. */
 PAC_API pac_status pac_topology_predict_threat(
     pac_topology *topology, const pac_predicted_ghost *ghosts,
     size_t ghost_count, size_t horizon, uint32_t *threat_eta,
     uint8_t *threat_owners, size_t threat_capacity);
 
-/* Reachable output contains four tile_count-element slices in BFS order. */
+/* Evaluate legal first moves against threat_eta. Each action's safe_tiles
+   occupy the start of its tile_count-sized reachable slice in BFS order. */
 PAC_API pac_status pac_topology_evaluate_actions(
     pac_topology *topology, uint16_t player_tile, const uint32_t *threat_eta,
     size_t threat_capacity, pac_action_evaluation *actions,
     size_t action_capacity, uint16_t *reachable, size_t reachable_capacity,
     size_t *action_count);
 
-/* Return the best terminal branch for one first action. Caller owns path. */
+/* Search continuations after one required action and write the winning path.
+   PAC_CAPACITY_EXCEEDED means the result would be incomplete. */
 PAC_API pac_status pac_topology_simulate_action(
     pac_topology *topology, const pac_simulation_input *input,
     pac_simulation_result *result, uint16_t *path, size_t path_capacity);
 
-/* One-shot graph-walking BFS retained for measured comparisons. */
+/* Walk a supplied graph once without a reusable topology, for comparison. */
 PAC_API pac_status pac_bfs_distances_graph(const pac_tile_neighbors *tiles,
                                            size_t tile_count, uint16_t origin,
                                            uint32_t *distances,
