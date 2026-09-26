@@ -5,9 +5,16 @@ VENV_PYTHON = $(VENV)/bin/python
 MAIN ?= pac-man.py
 ARGS ?= config.json
 WITH_CPP ?= 0
+RELEASE ?= 0
 
 ifeq ($(WITH_CPP),1)
 CPP_TARGET = native
+endif
+
+ifeq ($(RELEASE),1)
+NATIVE_MODE = release
+else
+NATIVE_MODE = debug
 endif
 
 MYPY_FLAGS = --warn-return-any --warn-unused-ignores --ignore-missing-imports --disallow-untyped-defs --check-untyped-defs
@@ -50,7 +57,7 @@ typecheck:
 	$(TY) check pacman delete_me tests
 
 native:
-	xmake f -c -m debug --toolchain=clang
+	xmake f -c -m $(NATIVE_MODE) --toolchain=clang
 	xmake build pacman-native
 
 native-test:
