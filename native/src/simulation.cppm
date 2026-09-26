@@ -22,8 +22,8 @@ export namespace pacman {
                            eat item, then resolve
                            ghost contact at B
 
-    One step owns no buffers. The caller keeps each branch's collectible
-    snapshot and supplies contact facts from the exact ghost prediction.
+    One step owns no buffers. The caller keeps each branch's consumed-item
+    bitset and supplies contact facts from the exact ghost prediction.
 */
 
 enum class collectible : std::uint8_t {
@@ -72,15 +72,20 @@ struct simulation_state {
 [[nodiscard]]
 fn advance_simulation_state(
     const simulation_state &before,
-    const std::span<const collectible> before_collectibles,
+    const std::span<const collectible> initial_collectibles,
+    const std::span<const std::uint64_t> before_consumed,
     const tile_index destination, const direction heading,
     const std::span<const ghost_contact> contacts,
     const simulation_rules &rules,
-    const std::span<collectible> after_collectibles,
+    const std::span<std::uint64_t> after_consumed,
     simulation_state &after) noexcept -> bool {
-    if (before_collectibles.size() != after_collectibles.size() ||
-        destination >= before_collectibles.size() ||
-        before_collectibles.data() == after_collectibles.data()) {
+    const let word_count = initial_collectibles.size() / 64 +
+                           (initial_collectibles.size() % 64 != 0);
+    if (destination >= initial_collectibles.size() ||
+        after_consumed.size() != word_count ||
+        (!before_consumed.empty() &&
+         (before_consumed.size() != word_count ||
+          before_consumed.data() == after_consumed.data()))) {
         return false;
     }
     for (const let contact : contacts) {
@@ -89,8 +94,12 @@ fn advance_simulation_state(
         }
     }
 
-    std::copy(before_collectibles.begin(), before_collectibles.end(),
-              after_collectibles.begin());
+    if (before_consumed.empty()) {
+        std::fill(after_consumed.begin(), after_consumed.end(), 0);
+    } else {
+        std::copy(before_consumed.begin(), before_consumed.end(),
+                  after_consumed.begin());
+    }
     after = before;
     after.tile = destination;
     after.heading = heading;
@@ -101,21 +110,28 @@ fn advance_simulation_state(
         after.ghost_combo = 0;
     }
 
-    switch (after_collectibles[destination]) {
-    case collectible::none:
-        break;
-    case collectible::pacgum:
-        after_collectibles[destination] = collectible::none;
-        after.score_gained += rules.pacgum_score;
-        ++after.pacgums_eaten;
-        break;
-    case collectible::power_pellet:
-        after_collectibles[destination] = collectible::none;
-        after.score_gained += rules.power_pellet_score;
-        ++after.power_pellets_eaten;
-        after.frightened_remaining = rules.frightened_ticks;
-        after.ghost_combo = 0;
-        break;
+    const let word = static_cast<std::size_t>(destination) / 64;
+    const let bit = std::uint64_t{1} << (destination % 64);
+    const bool already_consumed = (before_consumed.empty()
+                                       ? std::uint64_t{0}
+                                       : before_consumed[word]) & bit;
+    if (!already_consumed) {
+        switch (initial_collectibles[destination]) {
+        case collectible::none:
+            break;
+        case collectible::pacgum:
+            after_consumed[word] |= bit;
+            after.score_gained += rules.pacgum_score;
+            ++after.pacgums_eaten;
+            break;
+        case collectible::power_pellet:
+            after_consumed[word] |= bit;
+            after.score_gained += rules.power_pellet_score;
+            ++after.power_pellets_eaten;
+            after.frightened_remaining = rules.frightened_ticks;
+            after.ghost_combo = 0;
+            break;
+        }
     }
 
     std::uint8_t contacted_ghosts = 0;

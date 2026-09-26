@@ -69,7 +69,7 @@ struct branch_slot {
 
 [[nodiscard]]
 fn hash_branch(const simulation_state &state,
-               const std::span<const collectible> items) noexcept
+               const std::span<const std::uint64_t> consumed) noexcept
     -> std::size_t {
     std::size_t hash = 2166136261u;
     const let mix = [&hash](const std::size_t value) noexcept {
@@ -83,23 +83,24 @@ fn hash_branch(const simulation_state &state,
     mix(state.ghost_combo);
     mix(state.eaten_ghost_mask);
     mix(state.died);
-    for (const let item : items) {
-        mix(static_cast<std::size_t>(item));
+    for (const let word : consumed) {
+        mix(static_cast<std::size_t>(word));
     }
     return hash;
 }
 
 [[nodiscard]]
 fn same_branch(const simulation_state &lhs, const simulation_state &rhs,
-               const std::span<const collectible> lhs_items,
-               const std::span<const collectible> rhs_items) noexcept -> bool {
+               const std::span<const std::uint64_t> lhs_consumed,
+               const std::span<const std::uint64_t> rhs_consumed) noexcept -> bool {
     return lhs.tile == rhs.tile && lhs.heading == rhs.heading &&
            lhs.tick == rhs.tick &&
            lhs.frightened_remaining == rhs.frightened_remaining &&
            lhs.ghost_combo == rhs.ghost_combo &&
            lhs.eaten_ghost_mask == rhs.eaten_ghost_mask &&
            lhs.died == rhs.died &&
-           std::equal(lhs_items.begin(), lhs_items.end(), rhs_items.begin());
+           std::equal(lhs_consumed.begin(), lhs_consumed.end(),
+                      rhs_consumed.begin());
 }
 
 [[nodiscard]]
@@ -203,20 +204,26 @@ fn search_action(const graph_view graph,
     const let slots_count = state_capacity * 2;
     std::unique_ptr<detail::branch_slot[]> slots{
         new (std::nothrow) detail::branch_slot[slots_count]{}};
-    std::unique_ptr<collectible[]> items{
-        new (std::nothrow) collectible[slots_count * tile_count]{}};
+    const let consumed_words = tile_count / 64 + (tile_count % 64 != 0);
+    if (consumed_words != 0 &&
+        slots_count > std::numeric_limits<std::size_t>::max() /
+                          consumed_words) {
+        return branch_search_status::invalid_input;
+    }
+    std::unique_ptr<std::uint64_t[]> consumed{
+        new (std::nothrow) std::uint64_t[slots_count * consumed_words]{}};
     std::unique_ptr<tile_index[]> paths{
         new (std::nothrow) tile_index[slots_count * (horizon + 1)]{}};
     const let table_size = state_capacity * 4 + 1;
     std::unique_ptr<std::size_t[]> table{new (std::nothrow)
                                              std::size_t[table_size]{}};
-    if (!slots || !items || !paths || !table) {
+    if (!slots || !consumed || !paths || !table) {
         return branch_search_status::out_of_memory;
     }
 
-    const let item_span = [&](const std::size_t slot) noexcept {
-        return std::span<collectible>{items.get() + slot * tile_count,
-                                      tile_count};
+    const let consumed_span = [&](const std::size_t slot) noexcept {
+        return std::span<std::uint64_t>{
+            consumed.get() + slot * consumed_words, consumed_words};
     };
     const let path_span = [&](const std::size_t slot) noexcept {
         return std::span<tile_index>{paths.get() + slot * (horizon + 1),
@@ -226,9 +233,9 @@ fn search_action(const graph_view graph,
     const let first_contacts = detail::contacts_for(
         prediction, origin, first->destination, 1, contact_buffer);
     if (!advance_simulation_state({.tile = origin, .heading = action},
-                                  initial_collectibles, first->destination,
+                                  initial_collectibles, {}, first->destination,
                                   action, {contact_buffer, first_contacts},
-                                  rules, item_span(0), slots[0].state)) {
+                                  rules, consumed_span(0), slots[0].state)) {
         return branch_search_status::invalid_input;
     }
     path_span(0)[0] = origin;
@@ -265,9 +272,10 @@ fn search_action(const graph_view graph,
                     prediction, current.tile, candidate.destination,
                     current.tick + 1, contact_buffer);
                 if (!advance_simulation_state(
-                        current, item_span(current_slot), candidate.destination,
+                        current, initial_collectibles,
+                        consumed_span(current_slot), candidate.destination,
                         candidate.heading, {contact_buffer, contacts}, rules,
-                        item_span(candidate_slot),
+                        consumed_span(candidate_slot),
                         slots[candidate_slot].state)) {
                     return branch_search_status::invalid_input;
                 }
@@ -277,22 +285,23 @@ fn search_action(const graph_view graph,
                 candidate_path[current.tick + 1] = candidate.destination;
 
                 const let hash = detail::hash_branch(
-                    slots[candidate_slot].state, item_span(candidate_slot));
+                    slots[candidate_slot].state,
+                    consumed_span(candidate_slot));
                 let table_index = hash % table_size;
                 while (table[table_index] != 0) {
                     const let existing_slot =
                         next_base + table[table_index] - 1;
                     if (detail::same_branch(slots[candidate_slot].state,
                                             slots[existing_slot].state,
-                                            item_span(candidate_slot),
-                                            item_span(existing_slot))) {
+                                            consumed_span(candidate_slot),
+                                            consumed_span(existing_slot))) {
                         if (slots[candidate_slot].state.score_gained >
                             slots[existing_slot].state.score_gained) {
                             slots[existing_slot].state =
                                 slots[candidate_slot].state;
-                            std::copy(item_span(candidate_slot).begin(),
-                                      item_span(candidate_slot).end(),
-                                      item_span(existing_slot).begin());
+                            std::copy(consumed_span(candidate_slot).begin(),
+                                      consumed_span(candidate_slot).end(),
+                                      consumed_span(existing_slot).begin());
                             std::copy_n(candidate_path.begin(),
                                         current.tick + 2,
                                         path_span(existing_slot).begin());
