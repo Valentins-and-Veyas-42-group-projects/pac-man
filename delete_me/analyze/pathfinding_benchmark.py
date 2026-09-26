@@ -1,5 +1,6 @@
 """Compare Python and native BFS implementations on a generated maze."""
 
+import ctypes
 import json
 import subprocess
 import tempfile
@@ -12,7 +13,7 @@ from time import perf_counter_ns
 
 from pacman.analyze.maze_graph import build_maze_graph
 from pacman.analyze.models import MazeGraph
-from pacman.analyze.native_pathfinding import NativePathfinding, load_native_pathfinding
+from pacman.analyze.native_pathfinding import PAC_OK, NativePathfinding, load_native_pathfinding
 from pacman.analyze.pathfinding import bfs
 from pacman.maze_loader import load_maze
 from pacman.replay.maze_codec import encode_topology
@@ -51,6 +52,59 @@ def measure_batch(graph: MazeGraph, backend: NativePathfinding, rounds: int) -> 
             if isinstance(backend.distances_many(graph, batch), Nothing):
                 raise RuntimeError("native batch BFS failed")
         samples.append((perf_counter_ns() - started) / len(origins))
+    return median(samples)
+
+
+def measure_cached_abi(graph: MazeGraph, backend: NativePathfinding, rounds: int) -> tuple[float, float]:
+    """Time the cached C ABI with reusable storage to expose wrapper cost.
+
+    Returns:
+        Median nanoseconds for the C call and for Python distance decoding.
+
+    Raises:
+        RuntimeError: Topology creation or a native lookup failed.
+    """
+    topology = backend._topology_for(graph)
+    if isinstance(topology, Nothing):
+        raise RuntimeError("native topology unavailable")
+    count = len(graph.moves)
+    output = (ctypes.c_uint32 * count)()
+    search = backend._library.pac_topology_bfs_distances
+    if search(topology.value, 0, output, count) != PAC_OK:
+        raise RuntimeError("native cached lookup failed")
+    samples: list[float] = []
+    for _ in range(rounds):
+        started = perf_counter_ns()
+        for origin in range(count):
+            if search(topology.value, origin, output, count) != PAC_OK:
+                raise RuntimeError(f"native cached lookup failed at origin {origin}")
+        samples.append((perf_counter_ns() - started) / count)
+    decode_samples: list[float] = []
+    for _ in range(rounds):
+        started = perf_counter_ns()
+        for _ in range(count):
+            backend._decode(output)
+        decode_samples.append((perf_counter_ns() - started) / count)
+    return median(samples), median(decode_samples)
+
+
+def measure_graph_encoding(graph: MazeGraph, backend: NativePathfinding, rounds: int) -> float:
+    """Expose the Python graph conversion included in native one-shot calls.
+
+    Returns:
+        Median nanoseconds per graph encoding.
+
+    Raises:
+        RuntimeError: The graph could not be encoded for the C ABI.
+    """
+    count = len(graph.moves)
+    samples: list[float] = []
+    for _ in range(rounds):
+        started = perf_counter_ns()
+        for _ in range(count):
+            if isinstance(backend._encode(graph), Nothing):
+                raise RuntimeError("native graph encoding failed")
+        samples.append((perf_counter_ns() - started) / count)
     return median(samples)
 
 
@@ -144,6 +198,12 @@ def main() -> int:
         print(f"{name:22} {elapsed:9.2f} us/search")
     batch_elapsed = measure_batch(graph, backend, args.rounds) / 1_000
     print(f"{'C++ selected batch':22} {batch_elapsed:9.2f} us/field")
+    abi_ns, decode_ns = measure_cached_abi(graph, backend, args.rounds)
+    abi_elapsed = abi_ns / 1_000
+    print(f"{'C++ ABI cached lookup':22} {abi_elapsed:9.2f} us/field")
+    print(f"{'C++ Python result decode':22} {decode_ns / 1_000:9.2f} us/field")
+    encoding_elapsed = measure_graph_encoding(graph, backend, args.rounds) / 1_000
+    print(f"{'C++ Python graph encode':22} {encoding_elapsed:9.2f} us/graph")
     fixture = {
         "graph": encoded_graph(graph),
         "tileCount": len(graph.moves),

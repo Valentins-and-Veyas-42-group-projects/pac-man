@@ -7,6 +7,7 @@ import subprocess
 import sys
 from argparse import ArgumentParser
 from pathlib import Path
+from time import perf_counter
 
 
 def color(value: str, code: str) -> str:
@@ -25,14 +26,15 @@ def run(command: list[str], step: int, label: str) -> str | None:
         Standard output on success, otherwise nothing.
     """
     print(f"{color(f'[{step}/4]', '36')} {label} ... ", end="", flush=True)
+    started = perf_counter()
     try:
         completed = subprocess.run(command, capture_output=True, text=True, check=False)
     except OSError as error:
-        print(color("failed", "31"), flush=True)
+        print(f"{color('failed', '31')}  {perf_counter() - started:.1f}s", flush=True)
         print(f"could not run {' '.join(command)}: {error}", file=sys.stderr)
         return None
     if completed.returncode != 0:
-        print(color("failed", "31"), flush=True)
+        print(f"{color('failed', '31')}  {perf_counter() - started:.1f}s", flush=True)
         print(f"failed ({completed.returncode}): {' '.join(command)}", file=sys.stderr)
         print(completed.stdout, end="", file=sys.stderr)
         print(completed.stderr, end="", file=sys.stderr)
@@ -42,7 +44,7 @@ def run(command: list[str], step: int, label: str) -> str | None:
                 file=sys.stderr,
             )
         return None
-    print(color("ok", "32"), flush=True)
+    print(f"{color('ok', '32')}  {perf_counter() - started:.1f}s", flush=True)
     return completed.stdout
 
 
@@ -52,7 +54,7 @@ def timing(output: str, label: str) -> float | None:
     Returns:
         Measured microseconds, or nothing when the label is absent.
     """
-    pattern = rf"(?m)^\s*{re.escape(label)}\s+([\d.]+)\s+us/(?:search|field|call|state|decision|action)"
+    pattern = rf"(?m)^\s*{re.escape(label)}\s+([\d.]+)\s+us/(?:search|field|call|state|decision|action|graph)"
     match = re.search(pattern, output)
     if match is None:
         # Analysis benchmark prints the unit in the heading, not on each row.
@@ -94,12 +96,19 @@ def table_row(name: str, python: str, native: str, wasm: str, native_ratio: str,
 
 
 def table_rule() -> str:
-    """Match the table's column widths without ANSI escape codes.
+    """Separate header and data without dangling column junctions.
 
     Returns:
         A separator spanning every column.
     """
-    return " " + "─" * 20 + "─┼─" + "─┼─".join("─" * width for width in (11, 11, 11, 7, 7))
+    return " " + "─" * 82
+
+
+def table_header(title: str) -> None:
+    """Start one complete table so columns do not straddle section labels."""
+    print(f"\n{color(title, '36')}")
+    print(table_row("Operation", "Python", "C++/Py", "WASM/JS", "C++×", "WASM×"))
+    print(color(table_rule(), "2"))
 
 
 def main() -> int:
@@ -126,6 +135,7 @@ def main() -> int:
         ["make", "analysis-benchmark", f"BENCH_ARGS={analysis_args}"],
         ["make", "analysis-benchmark-sanitize", f"BENCH_ARGS={analysis_args}"],
     )
+    started = perf_counter()
     outputs: list[str] = []
     labels = ("Pathfinding: Python, native, WASM", "Ghost prediction: Python, native, WASM",
               "Analysis: Python, native, WASM", "ASan + UBSan: native tests and analysis")
@@ -146,8 +156,11 @@ def main() -> int:
     required = (
         (bfs, "Python BFS"),
         *((bfs, f"{prefix} {mode}") for _, mode in bfs_modes for prefix in ("C++", "WASM")),
+        (bfs, "C++ ABI cached lookup"), (bfs, "C++ Python result decode"),
+        (bfs, "C++ Python graph encode"),
         (prediction, "Python prediction"), (prediction, "C++ cached prediction"),
-        (prediction, "WASM cached prediction"),
+        (prediction, "WASM cached prediction"), (prediction, "C++ ABI prediction"),
+        (prediction, "C++ Python result decode"),
         (analysis, "Python reference"), (analysis, "Native C++ via Python"),
         (analysis, "WASM Web Worker"), (analysis, "WASM branch search"),
         (analysis, "Python branch"), (analysis, "Native branch"),
@@ -159,18 +172,14 @@ def main() -> int:
             print(output, file=sys.stderr)
         return 1
 
-    print(f"\n{color('Backend speeds', '1')}  median time, lower is faster")
-    print("  Speedup is relative to Python. Each value includes its unit.")
-    print(color(table_rule(), "2"))
-    print(table_row("Operation", "Python", "Native", "WASM", "Native×", "WASM×"))
-    print(color(table_rule(), "2"))
-    print(color("  Pathfinding (per distance field)", "36"))
+    print(f"\n{color('Backend speeds', '1')}  median µs per operation; lower is faster")
+    print("  C++/Py includes Python conversion; WASM/JS includes JS conversion.")
+    print("  Safety and branch WASM calls include worker IPC; × is speedup vs Python.")
+    table_header("Pathfinding (per distance field)")
     python_bfs = timing(bfs, "Python BFS")
     for name, mode in bfs_modes:
         show_row(name, python_bfs, timing(bfs, f"C++ {mode}"), timing(bfs, f"WASM {mode}"))
-    print()
-    print(color("  Analysis", "36"))
-    print("  Per prediction, analyzed state, and searched action, respectively.")
+    table_header("Analysis (prediction, state, or action per row)")
     show_row(
         "Ghost prediction", timing(prediction, "Python prediction"),
         timing(prediction, "C++ cached prediction"), timing(prediction, "WASM cached prediction"),
@@ -189,9 +198,47 @@ def main() -> int:
         "Branch search", timing(analysis, "Python branch"),
         timing(analysis, "Native branch"), timing(analysis, "WASM branch search"),
     )
-    print(color(table_rule(), "2"))
-    print("  One-shot native encodes the Python graph on each call; WASM gets flat bytes.")
-    print("  WASM analysis includes worker IPC; native analysis includes ctypes.")
+    print("  One-shot C++/Py re-encodes the graph per call; WASM/JS gets flat bytes.")
+
+    abi_bfs = timing(bfs, "C++ ABI cached lookup")
+    decode_bfs = timing(bfs, "C++ Python result decode")
+    wrapped_bfs = timing(bfs, "C++ selected cached")
+    wasm_bfs = timing(bfs, "WASM selected cached")
+    abi_prediction = timing(prediction, "C++ ABI prediction")
+    decode_prediction = timing(prediction, "C++ Python result decode")
+    wrapped_prediction = timing(prediction, "C++ cached prediction")
+    wasm_prediction = timing(prediction, "WASM cached prediction")
+    graph_encoding = timing(bfs, "C++ Python graph encode")
+    graph_total = timing(bfs, "C++ graph one-shot")
+    graph_wasm = timing(bfs, "WASM graph one-shot")
+    if (
+        abi_bfs is None or decode_bfs is None or wrapped_bfs is None or wasm_bfs is None
+        or abi_prediction is None or decode_prediction is None
+        or wrapped_prediction is None or wasm_prediction is None
+        or graph_encoding is None or graph_total is None or graph_wasm is None
+    ):
+        print("native ABI breakdown is incomplete", file=sys.stderr)
+        return 1
+    print("\nNative ctypes breakdown (same maze, µs/call)")
+    print(
+        f"  {'Operation':20} {'ABI':>7} {'Decode':>8} {'Other Py':>8} "
+        f"{'C++/Py':>8} {'WASM/JS':>8} {'Δ':>8}"
+    )
+    print("  " + "─" * 77)
+    for name, abi, decode, wrapped, wasm in (
+        ("Cached BFS", abi_bfs, decode_bfs, wrapped_bfs, wasm_bfs),
+        ("Ghost prediction", abi_prediction, decode_prediction, wrapped_prediction, wasm_prediction),
+    ):
+        print(
+            f"  {name:20} {abi:7.2f} {decode:8.2f} {wrapped - abi - decode:8.2f} "
+            f"{wrapped:8.2f} {wasm:8.2f} {wrapped - wasm:+8.2f}"
+        )
+    print("  Other Py = total − ABI − decode; Δ = C++/Py − WASM/JS.")
+    print(f"  Graph one-shot encoding: {graph_encoding:.2f} µs/graph")
+    print(
+        f"  Graph one-shot totals: C++/Py {graph_total:.2f} µs, "
+        f"WASM/JS {graph_wasm:.2f} µs, Δ {graph_total - graph_wasm:+.2f} µs"
+    )
     print("\nFull decision through Python")
     print(f"  {'Python':20} {float(analysis_python[1]):.2f} µs/decision")
     print(
@@ -221,6 +268,7 @@ def main() -> int:
     print("  make prediction-benchmark")
     print("  make analysis-benchmark")
     print("  make analysis-benchmark-sanitize")
+    print(f"\nTotal benchmark time: {perf_counter() - started:.1f}s")
     return 0
 
 

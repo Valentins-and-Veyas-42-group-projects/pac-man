@@ -1,5 +1,6 @@
 """Compare Python and native prediction on a generated mock game."""
 
+import ctypes
 import json
 import subprocess
 import tempfile
@@ -12,7 +13,8 @@ from time import perf_counter_ns
 
 from pacman.analyze.distance_backend import AcceleratedThreatField, PredictedGhostOrigin
 from pacman.analyze.maze_graph import build_maze_graph
-from pacman.analyze.native_pathfinding import load_native_pathfinding
+from pacman.analyze.models import MazeGraph
+from pacman.analyze.native_pathfinding import PAC_OK, NativePathfinding, PacPredictedGhost, load_native_pathfinding
 from pacman.analyze.prediction import _build_predicted_threat_field_python
 from pacman.analyze.threat import ThreatField
 from pacman.maze_loader import load_maze
@@ -41,6 +43,48 @@ def measure(operation: Callable[[], object], rounds: int) -> float:
         operation()
         samples.append(perf_counter_ns() - started)
     return median(samples) / 1_000
+
+
+def measure_cached_abi(
+    graph: MazeGraph,
+    backend: NativePathfinding,
+    ghosts: tuple[PredictedGhostOrigin, ...],
+    horizon: int,
+    expected: AcceleratedThreatField,
+    rounds: int,
+) -> tuple[float, float]:
+    """Time the native prediction ABI with already encoded input and output.
+
+    Returns:
+        Median microseconds for the C call and Python result decoding.
+
+    Raises:
+        RuntimeError: Native prediction failed or disagreed with its public wrapper.
+    """
+    topology = backend._topology_for(graph)
+    if isinstance(topology, Nothing):
+        raise RuntimeError("native topology unavailable")
+    encoded = (PacPredictedGhost * len(ghosts))(
+        *(PacPredictedGhost(int(ghost.tile), int(ghost.direction), int(ghost.ghost), int(ghost.dangerous))
+          for ghost in ghosts)
+    )
+    count = len(graph.moves)
+    etas = (ctypes.c_uint32 * count)()
+    owners = (ctypes.c_uint8 * count)()
+
+    def predict() -> None:
+        status = backend._library.pac_topology_predict_threat(
+            topology.value, encoded, len(ghosts), horizon, etas, owners, count,
+        )
+        if status != PAC_OK:
+            raise RuntimeError("native prediction ABI failed")
+
+    predict()
+    if backend._decode(etas) != expected.etas or tuple(owners) != expected.owner_masks:
+        raise RuntimeError("native prediction ABI differs from its public wrapper")
+    abi_us = measure(predict, rounds)
+    decode_us = measure(lambda: (backend._decode(etas), tuple(owners)), rounds)
+    return abi_us, decode_us
 
 
 def main() -> int:
@@ -119,9 +163,12 @@ def main() -> int:
 
     python_us = measure(python_prediction, args.rounds)
     native_us = measure(native_prediction, args.rounds)
+    abi_us, decode_us = measure_cached_abi(graph, backend, native_ghosts, args.horizon, accelerated, args.rounds)
     print(f"maze: {args.width}x{args.height}, horizon: {args.horizon}")
     print(f"{'Python prediction':22} {python_us:9.2f} us/call")
     print(f"{'C++ cached prediction':22} {native_us:9.2f} us/call")
+    print(f"{'C++ ABI prediction':22} {abi_us:9.2f} us/call")
+    print(f"{'C++ Python result decode':22} {decode_us:9.2f} us/call")
     print(f"{'speedup':22} {python_us / native_us:9.2f}x")
     fixture = {
         "graph": encoded_graph(graph),
