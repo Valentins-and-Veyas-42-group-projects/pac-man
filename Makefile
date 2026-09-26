@@ -51,7 +51,7 @@ typecheck:
 
 native:
 	xmake f -c -m debug --toolchain=clang
-	xmake
+	xmake build pacman-native
 
 native-test:
 	xmake f -c -m release --toolchain=clang

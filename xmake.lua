@@ -5,31 +5,11 @@ set_languages("c++23")
 set_toolchains("clang")
 
 add_rules("mode.debug", "mode.release")
-set_policy("build.across_targets_in_parallel", true)
 -- Sanitizer and release builds must not reuse incompatible module artifacts.
 set_policy("build.c++.modules.reuse", false)
 
 set_warnings("all", "extra")
 add_cxxflags("-Wpedantic", "-Wconversion", "-Wshadow", { tools = { "gcc", "clang" } })
-
-local function update_compile_commands()
-	import("core.base.task")
-	import("core.project.config")
-
-	local lockpath = path.join(config.builddir(), ".gens", "pacman-compile-commands")
-	local lock = io.openlock(lockpath .. ".lock")
-	if not lock:trylock() then
-		return
-	end
-
-	task.run("project", {
-		kind = "compile_commands",
-		outputdir = ".build",
-		lsp = "clangd",
-		target = false,
-	})
-	lock:close()
-end
 
 if is_plat("wasm") then
 	target("pacman-wasm")
@@ -41,7 +21,6 @@ if is_plat("wasm") then
 	-- underlying Clang version. The adapter fixes that probe only.
 	set_toolset("cxx", "clangxx@tools/emscripten/clang++")
 	set_policy("build.c++.modules.fallbackscanner", true)
-	after_build(update_compile_commands)
 	add_includedirs("native/include", "native/src")
 	add_files("native/abi/**.cpp")
 	add_files("native/src/**.cppm")
@@ -65,7 +44,6 @@ if is_plat("wasm") then
 	set_toolchains("emcc")
 	set_toolset("cxx", "clangxx@tools/emscripten/clang++")
 	set_policy("build.c++.modules.fallbackscanner", true)
-	after_build(update_compile_commands)
 	add_includedirs("native/include", "native/src")
 	add_files("native/abi/**.cpp")
 	add_files("native/src/**.cppm")
@@ -86,7 +64,6 @@ else
 	target("pacman-native")
 	set_kind("shared")
 	add_deps("pacman-core")
-	after_build(update_compile_commands)
 	add_includedirs("native/include")
 	add_headerfiles("native/include/(pacman/*.h)")
 	add_files("native/abi/**.cpp")
@@ -118,7 +95,6 @@ else
 	set_kind("binary")
 	set_default(false)
 	add_deps("pacman-core")
-	after_build(update_compile_commands)
 	add_includedirs("native/include")
 	add_files("native/abi/**.cpp")
 	add_files("native/tests/**.cpp")

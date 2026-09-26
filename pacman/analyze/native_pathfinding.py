@@ -637,7 +637,7 @@ class NativePathfinding:
 
 
 def _library_candidates() -> tuple[str, ...]:
-    """Return explicit, packaged, build-tree, and system library candidates."""
+    """Return explicit, recent build, packaged, and system libraries."""
     candidates: list[str] = []
     configured = os.environ.get("PACMAN_NATIVE_LIBRARY")
 
@@ -647,9 +647,14 @@ def _library_candidates() -> tuple[str, ...]:
     repository = Path(__file__).resolve().parents[2]
     packaged = Path(__file__).resolve().parent / "lib"
 
-    for directory in (packaged, repository / "build"):
+    for directory in (repository / "build", packaged):
         try:
-            candidates.extend(str(path) for path in directory.glob("**/libpacman-native.*"))
+            libraries = sorted(
+                directory.glob("**/libpacman-native.*"),
+                key=lambda path: path.stat().st_mtime_ns,
+                reverse=True,
+            )
+            candidates.extend(str(path) for path in libraries)
         except OSError:
             continue
 
