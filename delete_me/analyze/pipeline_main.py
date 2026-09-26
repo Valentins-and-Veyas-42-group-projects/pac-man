@@ -8,6 +8,7 @@ from pathlib import Path
 from random import Random
 from time import perf_counter
 
+from pacman.analyze.distance_backend import distances
 from pacman.analyze.maze_graph import build_maze_graph
 from pacman.analyze.messages import (
     AnalysisMessage,
@@ -16,7 +17,6 @@ from pacman.analyze.messages import (
     TurnObserved,
 )
 from pacman.analyze.models import MazeGraph, Move
-from pacman.analyze.distance_backend import distances
 from pacman.analyze.simulation import SimulationRules
 from pacman.maze_loader import load_maze
 from pacman.replay.maze_codec import encode_collectibles, encode_topology

@@ -10,8 +10,8 @@ from pacman.analyze.models import MazeGraph
 from pacman.analyze.simulation import SimulationRules
 from pacman.analyze.timeline import evaluation_loss, summarize_replay
 from pacman.analyze.topology import TileKind, classify_tile
-from pacman.replay.models import Frame, GamePhase, GhostState, Maze, Tick, TileIndex
 from pacman.replay.maze_codec import decode_collectibles
+from pacman.replay.models import Frame, GamePhase, GhostState, Maze, Tick, TileIndex
 from pacman.replay.store import ReplayStore
 from typed_errs import Err, Some
 

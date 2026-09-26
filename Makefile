@@ -60,13 +60,15 @@ native-test:
 
 native-sanitize:
 	xmake f -c -m debug --toolchain=clang -o .build/sanitize --policies=build.sanitizer.address,build.sanitizer.undefined
-	xmake build pacman-native-tests pacman-native
+	xmake build pacman-native-tests pacman-native pacman-native-benchmark
 	xmake run pacman-native-tests
+	xmake run pacman-native-benchmark
 	xmake f -c -m release --toolchain=clang
 
 native-benchmark:
 	xmake f -c -m release --toolchain=clang
-	xmake build pacman-native
+	xmake build pacman-native pacman-native-benchmark
+	xmake run pacman-native-benchmark
 	uv run python -m delete_me.analyze.pathfinding_benchmark
 
 prediction-benchmark:

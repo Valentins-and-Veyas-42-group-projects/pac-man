@@ -30,14 +30,14 @@ def create_analysis_worker(
     if backend is WorkerBackend.INLINE:
         from pacman.analyze.runtime.inline_worker import InlineAnalysisWorker
 
-        created = InlineAnalysisWorker.create(maze, rules, queue_capacity)
-        if isinstance(created, Err):
-            return created
-        return Ok(created.value)
+        inline_created = InlineAnalysisWorker.create(maze, rules, queue_capacity)
+        if isinstance(inline_created, Err):
+            return inline_created
+        return Ok(inline_created.value)
 
     from pacman.analyze.runtime.worker import AnalysisWorker
 
-    created = AnalysisWorker.create(maze, rules, queue_capacity)
-    if isinstance(created, Err):
-        return created
-    return Ok(created.value)
+    process_created = AnalysisWorker.create(maze, rules, queue_capacity)
+    if isinstance(process_created, Err):
+        return process_created
+    return Ok(process_created.value)

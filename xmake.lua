@@ -122,4 +122,12 @@ else
 	add_includedirs("native/include")
 	add_files("native/abi/**.cpp")
 	add_files("native/tests/**.cpp")
+
+	target("pacman-native-benchmark")
+	set_kind("binary")
+	set_default(false)
+	add_deps("pacman-core")
+	add_includedirs("native/include")
+	add_files("native/abi/**.cpp")
+	add_files("native/benchmarks/**.cpp")
 end

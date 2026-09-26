@@ -82,3 +82,18 @@ jobs:
 
       - name: Run highscore ingestion smoke benchmark
         run: uv run python -m benchmarks.highscore_ingestion --games 1000 --rounds 1
+
+  native:
+    name: Native sanitizers
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Install xmake
+        uses: xmake-io/github-action-setup-xmake@3a1a5dddfc7fa625d9a698738334bf55655a861a # v1
+        with:
+          xmake-version: '3.1.1'
+
+      - name: Run native tests and cached lookup benchmark with sanitizers
+        run: make native-sanitize
