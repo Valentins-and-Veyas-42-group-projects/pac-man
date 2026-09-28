@@ -2,13 +2,11 @@
 
 from dataclasses import replace
 
-from ..models import Cardinals, Direction, Player, Position
+from ..models import Direction, Player, Position
 from .board import Board
 
 
-def move(
-    player: Player, board: Board, direction: Direction, cardinal: Cardinals, grid: list[list[int]]
-) -> Player:
+def move(player: Player, board: Board, direction: Direction) -> Player:
     """Return a new `Player` moved one tile in `direction`, if the move is not blocked by a wall.
 
     Args:
@@ -19,11 +17,7 @@ def move(
     Returns:
         The (possibly unchanged) resulting `Player`.
     """
-    height = len(grid)
-    width = len(grid[0]) if grid else 0
-    if board.is_wall(player.position, cardinal, grid) or not board.is_inbounds(
-        player.position, width, height
-    ):
+    if board.is_wall(player.position, direction):
         return player
     dx, dy = direction.value
     newpos = Position(player.position.x + dx, player.position.y + dy)

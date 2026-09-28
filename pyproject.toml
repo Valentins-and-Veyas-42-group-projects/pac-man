@@ -44,10 +44,10 @@ disallow_untyped_defs = true
 check_untyped_defs = true
 
 [tool.flake8]
-max-line-length = 120
+max-line-length = 100
 
 [tool.ruff]
-line-length = 120
+line-length = 100
 target-version = "py310"
 preview = true
 src = ["pacman"]
