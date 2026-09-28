@@ -51,7 +51,7 @@ struct graph_view {
                 return false;
             }
 
-            for (std::size_t index = 0; index < entry.count; ++index) {
+            for (std::size_t index = 0; index < entry.count; index++) {
                 if (!contains(entry.moves[index].destination)) {
                     return false;
                 }

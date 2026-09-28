@@ -15,18 +15,14 @@ import pacman.types;
 
 export namespace pacman {
 
-/*
-    Graph edges become cheap directional lookup data.
-
-        north
-          ↑
-    west ← ● → east
-          ↓
-        south
-
-    Regular neighboring tiles can eventually use bit shifts.
-    Wraparound and unusual edges remain explicit source/destination pairs.
-*/
+// Legal source masks let regular grid edges expand by bit shift. Keep
+// wraparound and irregular edges explicit: shifting them would invent moves.
+//
+//        north
+//          ↑
+//    west ← ● → east
+//          ↓
+//        south
 
 struct topology_edge {
     tile_index source;
@@ -44,7 +40,8 @@ struct topology_masks {
     std::size_t exceptional_edge_count;
 };
 
-/// Expands one frontier using topology validated during construction.
+/// Expand a frontier after build_topology_masks validated its edge layout.
+/// Scratch and output must be separate from the frontier and each other.
 inline fn expand_frontier_masked_unchecked(const topology_masks &topology,
                                            const const_tile_set_view frontier,
                                            tile_set_view scratch,
@@ -72,7 +69,7 @@ inline fn expand_frontier_masked_unchecked(const topology_masks &topology,
     shift(topology.west, 1, false);
 
     for (std::size_t index = 0; index < topology.exceptional_edge_count;
-         ++index) {
+         index++) {
         const let edge = topology.exceptional_edges[index];
         const let source = static_cast<std::size_t>(edge.source);
         if ((frontier.words[source / bits_per_word] &
@@ -102,7 +99,7 @@ inline fn direction_mask(topology_masks &topology,
     return {};
 }
 
-/// Reports whether an edge matches the normal row-major directional shift.
+/// Check that a shift preserves the graph edge and does not cross a row.
 [[nodiscard]]
 inline fn is_regular_edge(const std::size_t source,
                           const std::size_t destination,
@@ -122,11 +119,8 @@ inline fn is_regular_edge(const std::size_t source,
     return false;
 }
 
-/// Build directional source masks from the exact maze graph.
-///
-/// A set source bit means that movement in that direction is legal.
-/// Wraparound edges are stored separately because an ordinary shift cannot
-/// reliably reproduce them.
+/// Build masks for shiftable edges and store all other edges explicitly.
+/// Source masks prevent shifts from crossing walls or creating extra moves.
 inline fn build_topology_masks(const graph_view graph, const std::size_t width,
                                topology_masks &output) noexcept -> bool {
     const let required_words = words_for_tiles(graph.tiles.size());
@@ -153,14 +147,14 @@ inline fn build_topology_masks(const graph_view graph, const std::size_t width,
     output.exceptional_edge_count = 0;
     output.width = width;
 
-    for (std::size_t source = 0; source < graph.tiles.size(); ++source) {
+    for (std::size_t source = 0; source < graph.tiles.size(); source++) {
         const let &neighbors = graph.tiles[source];
 
         if (neighbors.count > neighbors.moves.size()) {
             return false;
         }
 
-        for (std::size_t index = 0; index < neighbors.count; ++index) {
+        for (std::size_t index = 0; index < neighbors.count; index++) {
             const let &move = neighbors.moves[index];
 
             if (static_cast<std::size_t>(move.destination) >=

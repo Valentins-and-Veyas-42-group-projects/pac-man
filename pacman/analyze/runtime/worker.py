@@ -6,7 +6,6 @@ import os
 import socket
 import time
 from dataclasses import dataclass
-from enum import Enum
 from multiprocessing.process import BaseProcess
 
 from typed_errs import Err, Nothing, Ok, Option, Result, Some
@@ -31,55 +30,15 @@ from pacman.analyze.runtime.socket_transport import (
     send_command,
     send_output,
 )
+from pacman.analyze.runtime.worker_contract import (
+    AnalysisOffer,
+    AnalysisWorkerError,
+    WorkerStatus,
+    worker_err,
+)
 from pacman.analyze.simulation import SimulationRules
 from pacman.replay.batch_codec import decode_batch_from
 from pacman.replay.models import FrameBatch, Maze
-
-
-class WorkerStatus(Enum):
-    """Lifecycle states of an analysis worker process."""
-
-    CREATED = "created"
-    RUNNING = "running"
-    CLOSING = "closing"
-    CLOSED = "closed"
-    FAILED = "failed"
-
-
-class AnalysisOffer(Enum):
-    """Immediate outcome of offering work without blocking gameplay."""
-
-    ACCEPTED = "accepted"
-    QUEUE_FULL = "queue_full"
-    CLOSED = "closed"
-    WORKER_DEAD = "worker_dead"
-    BATCH_FAILED = "batch_failed"
-
-
-class AnalysisWorkerError(Enum):
-    """Failures while managing the analysis process lifetime."""
-
-    INVALID_QUEUE_CAPACITY = "invalid_queue_capacity"
-    INVALID_STATE = "invalid_state"
-    CREATE_FAILED = "create_failed"
-    START_FAILED = "start_failed"
-    CLOSE_FAILED = "close_failed"
-    BATCH_DECODE_FAILED = "batch_decode_failed"
-    IPC_FAILED = "ipc_failed"
-    INVALID_ACKNOWLEDGEMENT = "invalid_acknowledgement"
-
-
-def worker_err(error: AnalysisWorkerError) -> Err[AnalysisWorkerError]:
-    """Create a consistently contextualized worker error.
-
-    Returns:
-        Worker error with stable namespace and context.
-    """
-    return Err(
-        error=error,
-        namespace="analysis_worker",
-        context_msg="Failed to manage analysis worker",
-    )
 
 
 def decode_received_batch(

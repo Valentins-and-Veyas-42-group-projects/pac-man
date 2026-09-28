@@ -7,10 +7,19 @@ from typing import Protocol, cast
 
 from typed_errs import Nothing, Option, Some
 
+from pacman.analyze.distance_backend import (
+    AcceleratedAction,
+    AcceleratedSimulation,
+    AcceleratedThreatAnalysis,
+    AcceleratedThreatField,
+    GhostOriginLike,
+    PredictedGhostOrigin,
+    PreparedSimulation,
+)
 from pacman.analyze.models import MazeGraph
-from pacman.replay.models import TileIndex
+from pacman.replay.models import Direction, TileIndex
 
-PACMAN_ABI_VERSION = 2
+PACMAN_ABI_VERSION = 3
 MOVES_PER_TILE = 4
 MOVE_SIZE = 4
 TILE_SIZE = MOVES_PER_TILE * MOVE_SIZE + 2
@@ -22,6 +31,46 @@ class WasmDistances(Protocol):
     def __iter__(self) -> Iterator[int]:
         """Iterate over returned distances."""
         ...
+
+
+class WasmThreatAnalysis(Protocol):
+    """Combined result returned through Python/JavaScript interop."""
+
+    playerDistances: WasmDistances  # noqa: N815
+    threatEtas: WasmDistances  # noqa: N815
+    threatOwnerMasks: WasmDistances  # noqa: N815
+
+
+class WasmThreatField(Protocol):
+    """Threat-only result returned through Python/JavaScript interop."""
+
+    etas: WasmDistances
+    ownerMasks: WasmDistances  # noqa: N815
+
+
+class WasmAction(Protocol):
+    """One action record from the browser bridge."""
+
+    direction: int
+    firstTile: int  # noqa: N815
+    reachableTiles: WasmDistances  # noqa: N815
+    safeTiles: int  # noqa: N815
+    safeIntersections: int  # noqa: N815
+    horizonTicks: int  # noqa: N815
+    minimumMargin: int | None  # noqa: N815
+
+
+class WasmSimulationResult(Protocol):
+    """Best terminal branch returned by the browser bridge."""
+
+    scoreGained: int  # noqa: N815
+    survivalHorizon: int  # noqa: N815
+    pacgumsEaten: int  # noqa: N815
+    powerPelletsEaten: int  # noqa: N815
+    ghostsEaten: int  # noqa: N815
+    remainingPowerTicks: int  # noqa: N815
+    died: bool
+    path: WasmDistances
 
 
 class WasmBridge(Protocol):
@@ -51,6 +100,59 @@ class WasmBridge(Protocol):
         self, topology: int, tile_count: int, origin: int
     ) -> WasmDistances | None:
         """Search through a reusable topology handle."""
+        ...
+
+    def topologyAnalyzeDistances(  # noqa: N802
+        self,
+        topology: int,
+        tile_count: int,
+        player_origin: int,
+        ghosts: list[int],
+    ) -> WasmThreatAnalysis | None:
+        """Compute player and dangerous-ghost fields together."""
+        ...
+
+    def topologyThreatField(  # noqa: N802
+        self,
+        topology: int,
+        tile_count: int,
+        ghosts: list[int],
+    ) -> WasmThreatField | None:
+        """Compute dangerous-ghost fields without a player search."""
+        ...
+
+    def topologyPredictThreat(  # noqa: N802
+        self,
+        topology: int,
+        tile_count: int,
+        ghosts: list[int],
+        horizon: int,
+    ) -> WasmThreatField | None:
+        """Compute bounded direction-aware ghost threats."""
+        ...
+
+    def topologyEvaluateActions(  # noqa: N802
+        self, topology: int, tile_count: int, player_tile: int, threat_etas: list[int]
+    ) -> list[WasmAction] | None:
+        """Evaluate safe first moves with the cached topology."""
+        ...
+
+    def topologySimulateAction(  # noqa: N802
+        self,
+        topology: int,
+        tile_count: int,
+        collectibles: list[int],
+        prediction_grid: list[int],
+        ghost_order: list[int],
+        origin: int,
+        action: int,
+        horizon: int,
+        pacgum_score: int,
+        power_pellet_score: int,
+        frightened_ticks: int,
+        combo_scores: list[int],
+    ) -> WasmSimulationResult | None:
+        """Search one bounded continuation in the shared WASM core."""
         ...
 
 
@@ -105,18 +207,10 @@ class WasmPathfinding:
     def distances(self, graph: MazeGraph, origin: TileIndex) -> Option[tuple[int, ...]]:
         """Return cached-topology WASM distances, or Nothing on failure."""
         try:
-            cached = self._topologies.get(id(graph))
-            if cached is None or cached[0] is not graph:
-                encoded = self._encode(graph)
-                if isinstance(encoded, Nothing):
-                    return Nothing()
-                topology = int(self._bridge.createTopology(encoded.value, len(graph.moves), graph.width))
-                if topology == 0:
-                    return Nothing()
-                self._topologies[id(graph)] = (graph, topology)
-            else:
-                topology = cached[1]
-            result = self._bridge.topologyBfsDistances(topology, len(graph.moves), int(origin))
+            topology = self._topology_for(graph)
+            if isinstance(topology, Nothing):
+                return Nothing()
+            result = self._bridge.topologyBfsDistances(topology.value, len(graph.moves), int(origin))
             if result is None:
                 return Nothing()
             values = tuple(int(value) for value in result)
@@ -125,6 +219,206 @@ class WasmPathfinding:
             return Some(values)
         except Exception:
             return Nothing()
+
+    def analyze_distances(
+        self,
+        graph: MazeGraph,
+        player_origin: TileIndex,
+        ghosts: tuple[GhostOriginLike, ...],
+    ) -> Option[AcceleratedThreatAnalysis]:
+        """Return combined cached-topology analysis, or Nothing on failure."""
+        try:
+            topology = self._topology_for(graph)
+            if isinstance(topology, Nothing):
+                return Nothing()
+            encoded: list[int] = []
+            for ghost in ghosts:
+                tile = int(ghost.tile)
+                encoded.extend((tile & 0xFF, tile >> 8, int(ghost.ghost), int(ghost.dangerous)))
+            result = self._bridge.topologyAnalyzeDistances(
+                topology.value, len(graph.moves), int(player_origin), encoded
+            )
+            if result is None:
+                return Nothing()
+            analysis = AcceleratedThreatAnalysis(
+                player_distances=tuple(int(value) for value in result.playerDistances),
+                threat_etas=tuple(int(value) for value in result.threatEtas),
+                threat_owner_masks=tuple(int(value) for value in result.threatOwnerMasks),
+            )
+            if not all(
+                len(values) == len(graph.moves)
+                for values in (
+                    analysis.player_distances,
+                    analysis.threat_etas,
+                    analysis.threat_owner_masks,
+                )
+            ):
+                return Nothing()
+            return Some(analysis)
+        except Exception:
+            return Nothing()
+
+    def threat_field(
+        self,
+        graph: MazeGraph,
+        ghosts: tuple[GhostOriginLike, ...],
+    ) -> Option[AcceleratedThreatField]:
+        """Return dangerous-ghost arrivals without a player search."""
+        try:
+            topology = self._topology_for(graph)
+            if isinstance(topology, Nothing):
+                return Nothing()
+            encoded = self._encode_ghosts(ghosts)
+            result = self._bridge.topologyThreatField(topology.value, len(graph.moves), encoded)
+            if result is None:
+                return Nothing()
+            field = AcceleratedThreatField(
+                etas=tuple(int(value) for value in result.etas),
+                owner_masks=tuple(int(value) for value in result.ownerMasks),
+            )
+            if len(field.etas) != len(graph.moves) or len(field.owner_masks) != len(graph.moves):
+                return Nothing()
+            return Some(field)
+        except Exception:
+            return Nothing()
+
+    def predict_threat(
+        self,
+        graph: MazeGraph,
+        ghosts: tuple[PredictedGhostOrigin, ...],
+        horizon: int,
+    ) -> Option[AcceleratedThreatField]:
+        """Return bounded direction-aware ghost threats."""
+        try:
+            topology = self._topology_for(graph)
+            if isinstance(topology, Nothing):
+                return Nothing()
+            encoded: list[int] = []
+            for ghost in ghosts:
+                tile = int(ghost.tile)
+                encoded.extend((
+                    tile & 0xFF,
+                    tile >> 8,
+                    int(ghost.direction),
+                    int(ghost.ghost),
+                    int(ghost.dangerous),
+                    0,
+                    0,
+                    0,
+                ))
+            result = self._bridge.topologyPredictThreat(topology.value, len(graph.moves), encoded, horizon)
+            if result is None:
+                return Nothing()
+            field = AcceleratedThreatField(
+                etas=tuple(int(value) for value in result.etas),
+                owner_masks=tuple(int(value) for value in result.ownerMasks),
+            )
+            if len(field.etas) != len(graph.moves) or len(field.owner_masks) != len(graph.moves):
+                return Nothing()
+            return Some(field)
+        except Exception:
+            return Nothing()
+
+    def evaluate_actions(
+        self, graph: MazeGraph, player_tile: TileIndex, threat_etas: tuple[int, ...]
+    ) -> Option[tuple[AcceleratedAction, ...]]:
+        """Return safe first-move facts from the browser bridge."""
+        if len(threat_etas) != len(graph.moves):
+            return Nothing()
+        try:
+            topology = self._topology_for(graph)
+            if isinstance(topology, Nothing):
+                return Nothing()
+            result = self._bridge.topologyEvaluateActions(
+                topology.value, len(graph.moves), int(player_tile), list(threat_etas)
+            )
+            if result is None:
+                return Nothing()
+            return Some(
+                tuple(
+                    AcceleratedAction(
+                        direction=Direction(item.direction),
+                        first_tile=TileIndex(item.firstTile),
+                        reachable_tiles=tuple(TileIndex(tile) for tile in item.reachableTiles),
+                        safe_tiles=int(item.safeTiles),
+                        safe_intersections=int(item.safeIntersections),
+                        horizon_ticks=int(item.horizonTicks),
+                        minimum_margin=Some(int(item.minimumMargin)) if item.minimumMargin is not None else Nothing(),
+                    )
+                    for item in result
+                )
+            )
+        except Exception:
+            return Nothing()
+
+    def simulate_action(
+        self, graph: MazeGraph, prepared: PreparedSimulation, direction: Direction
+    ) -> Option[AcceleratedSimulation]:
+        """Return the best WASM branch, or Nothing for Python fallback."""
+        try:
+            topology = self._topology_for(graph)
+            if isinstance(topology, Nothing):
+                return Nothing()
+            result = self._bridge.topologySimulateAction(
+                topology.value,
+                len(graph.moves),
+                list(prepared.collectibles),
+                list(prepared.prediction_grid),
+                list(prepared.ghost_order),
+                int(prepared.origin),
+                int(direction),
+                prepared.horizon,
+                prepared.pacgum_score,
+                prepared.power_pellet_score,
+                prepared.frightened_ticks,
+                list(prepared.ghost_combo_scores),
+            )
+            if result is None:
+                return Nothing()
+            path = tuple(TileIndex(int(tile)) for tile in result.path)
+            if len(path) > prepared.horizon + 1:
+                return Nothing()
+            return Some(
+                AcceleratedSimulation(
+                    died=bool(result.died),
+                    survival_horizon=int(result.survivalHorizon),
+                    score_gained=int(result.scoreGained),
+                    pacgums_eaten=int(result.pacgumsEaten),
+                    power_pellets_eaten=int(result.powerPelletsEaten),
+                    ghosts_eaten=int(result.ghostsEaten),
+                    remaining_power_ticks=int(result.remainingPowerTicks),
+                    path=path,
+                )
+            )
+        except Exception:
+            return Nothing()
+
+    @staticmethod
+    def _encode_ghosts(ghosts: tuple[GhostOriginLike, ...]) -> list[int]:
+        """Flatten ghost records to their four-byte C representation.
+
+        Returns:
+            Consecutive bytes matching ``pac_ghost_origin`` records.
+        """
+        encoded: list[int] = []
+        for ghost in ghosts:
+            tile = int(ghost.tile)
+            encoded.extend((tile & 0xFF, tile >> 8, int(ghost.ghost), int(ghost.dangerous)))
+        return encoded
+
+    def _topology_for(self, graph: MazeGraph) -> Option[int]:
+        """Return a cached WASM topology, constructing it once."""
+        cached = self._topologies.get(id(graph))
+        if cached is not None and cached[0] is graph:
+            return Some(cached[1])
+        encoded = self._encode(graph)
+        if isinstance(encoded, Nothing):
+            return Nothing()
+        topology = int(self._bridge.createTopology(encoded.value, len(graph.moves), graph.width))
+        if topology == 0:
+            return Nothing()
+        self._topologies[id(graph)] = (graph, topology)
+        return Some(topology)
 
     def close(self) -> None:
         """Release every cached WASM topology."""

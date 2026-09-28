@@ -1,7 +1,12 @@
 #include "pacman/native.h"
 #include "pacman/macros.h"
 
+#include <algorithm>
+#include <array>
+#include <atomic>
+#include <bit>
 #include <cstddef>
+#include <cstdint>
 #include <limits>
 #include <memory>
 #include <new>
@@ -9,9 +14,24 @@
 
 import pacman.bitboard;
 import pacman.bfs;
+import pacman.branch_search;
 import pacman.graph;
+import pacman.options;
+import pacman.prediction;
+import pacman.simulation;
 import pacman.topology;
+import pacman.topology_cache;
+import pacman.threat;
 import pacman.types;
+
+#ifdef __EMSCRIPTEN__
+// JavaScript reads these structs directly from Wasm memory, so layout changes
+// must fail the build instead of silently corrupting the ABI boundary.
+static_assert(sizeof(pac_simulation_input) == 56);
+static_assert(offsetof(pac_simulation_input, ghost_order) == 48);
+static_assert(sizeof(pac_simulation_result) == 40);
+static_assert(offsetof(pac_simulation_result, died) == 32);
+#endif
 
 struct pac_topology {
     size_t tile_count{};
@@ -19,10 +39,35 @@ struct pac_topology {
     std::unique_ptr<pacman::bitboard_word[]> masks{};
     std::unique_ptr<pacman::topology_edge[]> exceptional_edges{};
     std::unique_ptr<pacman::bitboard_word[]> workspace{};
+    std::unique_ptr<pacman::path_distance[]> threat_distances{};
+    std::unique_ptr<pacman::prediction_state[]> prediction_states{};
+    std::unique_ptr<std::uint32_t[]> prediction_seen{};
+    std::unique_ptr<std::int32_t[]> option_arrivals{};
+    std::unique_ptr<pacman::tile_index[]> option_queue{};
+    std::atomic_flag workspace_lock{};
     pacman::topology_masks topology{};
+    pacman::topology_cache cache{};
+    bool cache_ready{};
 };
 
 namespace {
+
+struct workspace_guard {
+    // Cached distance construction and all borrowed work buffers share this
+    // topology. Serialize access so callers can reuse one handle safely.
+    explicit workspace_guard(std::atomic_flag &lock) noexcept : lock_{lock} {
+        while (lock_.test_and_set(std::memory_order_acquire)) {
+        }
+    }
+
+    ~workspace_guard() noexcept { lock_.clear(std::memory_order_release); }
+
+    workspace_guard(const workspace_guard &) = delete;
+    fn operator=(const workspace_guard &)->workspace_guard & = delete;
+
+  private:
+    std::atomic_flag &lock_;
+};
 
 fn copy_graph_tiles(const pac_tile_neighbors *source, const size_t tile_count,
                     std::unique_ptr<pacman::tile_neighbors[]> &output) noexcept
@@ -32,12 +77,12 @@ fn copy_graph_tiles(const pac_tile_neighbors *source, const size_t tile_count,
         return PAC_INTERNAL_ERROR;
     }
 
-    for (size_t tile = 0; tile < tile_count; ++tile) {
+    for (size_t tile = 0; tile < tile_count; tile++) {
         if (source[tile].count > 4) {
             return PAC_INVALID_ARGUMENT;
         }
         output[tile].count = source[tile].count;
-        for (size_t index = 0; index < source[tile].count; ++index) {
+        for (size_t index = 0; index < source[tile].count; index++) {
             const let &move = source[tile].moves[index];
             if (static_cast<size_t>(move.destination) >= tile_count ||
                 move.direction > PAC_DIRECTION_LEFT || move.wraparound > 1) {
@@ -60,6 +105,115 @@ fn workspace_view(pac_topology &topology, const size_t index) noexcept
         .words = {topology.workspace.get() + words * index, words},
         .tile_count = topology.tile_count,
     };
+}
+
+fn topology_bfs_graph(pac_topology &topology, const uint16_t origin,
+                      std::span<uint32_t> distances) noexcept -> pac_status {
+    if (!pacman::bfs_distances(
+            {.tiles = {topology.tiles.get(), topology.tile_count}}, origin,
+            distances, workspace_view(topology, 0), workspace_view(topology, 1),
+            workspace_view(topology, 2))) {
+        return PAC_INTERNAL_ERROR;
+    }
+    return PAC_OK;
+}
+
+fn topology_bfs_masked(pac_topology &topology, const uint16_t origin,
+                       std::span<uint32_t> distances) noexcept -> pac_status {
+    if (!pacman::bfs_distances_masked(
+            topology.topology, topology.tile_count, origin, distances,
+            workspace_view(topology, 0), workspace_view(topology, 1),
+            workspace_view(topology, 2), workspace_view(topology, 3))) {
+        return PAC_INTERNAL_ERROR;
+    }
+    return PAC_OK;
+}
+
+fn topology_bfs(pac_topology &topology, const uint16_t origin,
+                std::span<uint32_t> distances) noexcept -> pac_status {
+    if (static_cast<size_t>(origin) >= topology.tile_count ||
+        distances.size() < topology.tile_count) {
+        return PAC_INVALID_ARGUMENT;
+    }
+
+    // Many handles only use masked BFS or prediction. Build the all-pairs
+    // cache on first distance query to avoid their quadratic startup cost.
+    if (!topology.cache_ready) {
+        const let graph = pacman::graph_view{
+            .tiles = {topology.tiles.get(), topology.tile_count},
+        };
+        if (!pacman::build_topology_cache(graph, topology.cache)) {
+            return PAC_INTERNAL_ERROR;
+        }
+        topology.cache_ready = true;
+    }
+
+    const let *row = topology.cache.distance_row(origin);
+    std::copy_n(row, topology.tile_count, distances.data());
+    return PAC_OK;
+}
+
+fn validate_topology_search(const pac_topology *topology, const uint16_t origin,
+                            const uint32_t *distances,
+                            const size_t distance_capacity) noexcept
+    -> pac_status {
+    if (topology == nullptr || distances == nullptr ||
+        static_cast<size_t>(origin) >= topology->tile_count) {
+        return PAC_INVALID_ARGUMENT;
+    }
+    if (distance_capacity < topology->tile_count) {
+        return PAC_BUFFER_TOO_SMALL;
+    }
+    return PAC_OK;
+}
+
+fn topology_threat_field(pac_topology &topology, const pac_ghost_origin *ghosts,
+                         const size_t ghost_count, uint32_t *threat_eta,
+                         uint8_t *threat_owners,
+                         const size_t threat_capacity) noexcept -> pac_status {
+    constexpr size_t ghost_capacity = 4;
+    if (ghost_count > ghost_capacity ||
+        (ghost_count != 0 && ghosts == nullptr) || threat_eta == nullptr ||
+        threat_owners == nullptr) {
+        return PAC_INVALID_ARGUMENT;
+    }
+    if (threat_capacity < topology.tile_count) {
+        return PAC_BUFFER_TOO_SMALL;
+    }
+
+    std::array<pacman::ghost_origin, ghost_capacity> origins{};
+    for (size_t index = 0; index < ghost_count; index++) {
+        const let &ghost = ghosts[index];
+        if (static_cast<size_t>(ghost.tile) >= topology.tile_count ||
+            ghost.ghost >= ghost_capacity || ghost.dangerous > 1) {
+            return PAC_INVALID_ARGUMENT;
+        }
+        origins[index] = {
+            .tile = ghost.tile,
+            .ghost = ghost.ghost,
+            .dangerous = ghost.dangerous != 0,
+        };
+        if (!origins[index].dangerous) {
+            continue;
+        }
+        const let status = topology_bfs(
+            topology, origins[index].tile,
+            {topology.threat_distances.get() + index * topology.tile_count,
+             topology.tile_count});
+        if (status != PAC_OK) {
+            return status;
+        }
+    }
+
+    return pacman::combine_threat_distances(
+               {origins.data(), ghost_count},
+               {topology.threat_distances.get(),
+                ghost_count * topology.tile_count},
+               topology.tile_count,
+               {.eta = {threat_eta, topology.tile_count},
+                .owners = {threat_owners, topology.tile_count}})
+               ? PAC_OK
+               : PAC_INTERNAL_ERROR;
 }
 
 } // namespace
@@ -109,8 +263,19 @@ cfn PAC_API pac_topology_create(const pac_tile_neighbors *tiles,
                                        pacman::topology_edge[tile_count * 4]{});
     owned->workspace.reset(new (std::nothrow)
                                pacman::bitboard_word[words * 4]{});
+    owned->threat_distances.reset(new (std::nothrow)
+                                      pacman::path_distance[tile_count * 4]{});
+    owned->prediction_states.reset(
+        new (std::nothrow) pacman::prediction_state[tile_count * 8]{});
+    owned->prediction_seen.reset(new (std::nothrow) std::uint32_t[tile_count * 4]{});
+    owned->option_arrivals.reset(new (std::nothrow) std::int32_t[tile_count]{});
+    owned->option_queue.reset(new (std::nothrow)
+                                  pacman::tile_index[tile_count]{});
     if (owned->masks == nullptr || owned->exceptional_edges == nullptr ||
-        owned->workspace == nullptr) {
+        owned->workspace == nullptr || owned->threat_distances == nullptr ||
+        owned->prediction_states == nullptr ||
+        owned->prediction_seen == nullptr ||
+        owned->option_arrivals == nullptr || owned->option_queue == nullptr) {
         return PAC_INTERNAL_ERROR;
     }
 
@@ -123,12 +288,12 @@ cfn PAC_API pac_topology_create(const pac_tile_neighbors *tiles,
         .exceptional_edges = {owned->exceptional_edges.get(), tile_count * 4},
         .exceptional_edge_count = 0,
     };
-    if (!pacman::build_topology_masks(
-            {.tiles = {owned->tiles.get(), tile_count}}, maze_width,
-            owned->topology)) {
+    const let graph = pacman::graph_view{
+        .tiles = {owned->tiles.get(), tile_count},
+    };
+    if (!pacman::build_topology_masks(graph, maze_width, owned->topology)) {
         return PAC_INVALID_ARGUMENT;
     }
-
     *output = owned.release();
     return PAC_OK;
 }
@@ -142,20 +307,290 @@ cfn PAC_API pac_topology_bfs_distances(pac_topology *topology,
                                        uint32_t *distances,
                                        const size_t distance_capacity)
     -> pac_status {
-    if (topology == nullptr || distances == nullptr ||
-        static_cast<size_t>(origin) >= topology->tile_count) {
+    const let status = validate_topology_search(topology, origin, distances,
+                                                distance_capacity);
+    if (status != PAC_OK) {
+        return status;
+    }
+    const workspace_guard lock{topology->workspace_lock};
+    return topology_bfs(*topology, origin, {distances, topology->tile_count});
+}
+
+cfn PAC_API pac_topology_bfs_distances_graph(pac_topology *topology,
+                                             const uint16_t origin,
+                                             uint32_t *distances,
+                                             const size_t distance_capacity)
+    -> pac_status {
+    const let status = validate_topology_search(topology, origin, distances,
+                                                distance_capacity);
+    if (status != PAC_OK) {
+        return status;
+    }
+    const workspace_guard lock{topology->workspace_lock};
+    return topology_bfs_graph(*topology, origin,
+                              {distances, topology->tile_count});
+}
+
+cfn PAC_API pac_topology_bfs_distances_masked(pac_topology *topology,
+                                              const uint16_t origin,
+                                              uint32_t *distances,
+                                              const size_t distance_capacity)
+    -> pac_status {
+    const let status = validate_topology_search(topology, origin, distances,
+                                                distance_capacity);
+    if (status != PAC_OK) {
+        return status;
+    }
+    const workspace_guard lock{topology->workspace_lock};
+    return topology_bfs_masked(*topology, origin,
+                               {distances, topology->tile_count});
+}
+
+cfn PAC_API pac_topology_bfs_many(
+    pac_topology *topology, const uint16_t *origins, const size_t origin_count,
+    uint32_t *distance_fields, const size_t distance_capacity) -> pac_status {
+    if (topology == nullptr) {
         return PAC_INVALID_ARGUMENT;
     }
-    if (distance_capacity < topology->tile_count) {
+    if (origin_count == 0) {
+        return PAC_OK;
+    }
+    if (origins == nullptr || distance_fields == nullptr ||
+        origin_count > distance_capacity / topology->tile_count) {
+        return origins == nullptr || distance_fields == nullptr
+                   ? PAC_INVALID_ARGUMENT
+                   : PAC_BUFFER_TOO_SMALL;
+    }
+
+    const workspace_guard lock{topology->workspace_lock};
+    for (size_t index = 0; index < origin_count; index++) {
+        if (static_cast<size_t>(origins[index]) >= topology->tile_count) {
+            return PAC_INVALID_ARGUMENT;
+        }
+        const let status =
+            topology_bfs(*topology, origins[index],
+                         {distance_fields + index * topology->tile_count,
+                          topology->tile_count});
+        if (status != PAC_OK) {
+            return status;
+        }
+    }
+    return PAC_OK;
+}
+
+cfn PAC_API pac_topology_analyze_distances(
+    pac_topology *topology, const uint16_t player_origin,
+    const pac_ghost_origin *ghosts, const size_t ghost_count,
+    uint32_t *player_distances, const size_t player_distance_capacity,
+    uint32_t *threat_eta, uint8_t *threat_owners, const size_t threat_capacity)
+    -> pac_status {
+    const let player_status = validate_topology_search(
+        topology, player_origin, player_distances, player_distance_capacity);
+    if (player_status != PAC_OK) {
+        return player_status;
+    }
+    const workspace_guard lock{topology->workspace_lock};
+    const let status = topology_bfs(*topology, player_origin,
+                                    {player_distances, topology->tile_count});
+    if (status != PAC_OK) {
+        return status;
+    }
+    return topology_threat_field(*topology, ghosts, ghost_count, threat_eta,
+                                 threat_owners, threat_capacity);
+}
+
+cfn PAC_API pac_topology_threat_field(
+    pac_topology *topology, const pac_ghost_origin *ghosts,
+    const size_t ghost_count, uint32_t *threat_eta, uint8_t *threat_owners,
+    const size_t threat_capacity) -> pac_status {
+    if (topology == nullptr) {
+        return PAC_INVALID_ARGUMENT;
+    }
+    const workspace_guard lock{topology->workspace_lock};
+    return topology_threat_field(*topology, ghosts, ghost_count, threat_eta,
+                                 threat_owners, threat_capacity);
+}
+
+cfn PAC_API pac_topology_predict_threat(
+    pac_topology *topology, const pac_predicted_ghost *ghosts,
+    const size_t ghost_count, const size_t horizon, uint32_t *threat_eta,
+    uint8_t *threat_owners, const size_t threat_capacity) -> pac_status {
+    constexpr size_t ghost_capacity = 4;
+    if (topology == nullptr || ghost_count > ghost_capacity ||
+        (ghost_count != 0 && ghosts == nullptr) || threat_eta == nullptr ||
+        threat_owners == nullptr) {
+        return PAC_INVALID_ARGUMENT;
+    }
+    if (threat_capacity < topology->tile_count) {
         return PAC_BUFFER_TOO_SMALL;
     }
-    if (!pacman::bfs_distances_masked(
-            topology->topology, topology->tile_count, origin,
-            {distances, topology->tile_count}, workspace_view(*topology, 0),
-            workspace_view(*topology, 1), workspace_view(*topology, 2),
-            workspace_view(*topology, 3))) {
+
+    std::array<pacman::ghost_prediction_input, ghost_capacity> inputs{};
+    for (size_t index = 0; index < ghost_count; index++) {
+        const let &ghost = ghosts[index];
+        if (static_cast<size_t>(ghost.tile) >= topology->tile_count ||
+            ghost.direction > PAC_DIRECTION_LEFT ||
+            ghost.ghost >= ghost_capacity || ghost.dangerous > 1) {
+            return PAC_INVALID_ARGUMENT;
+        }
+        inputs[index] = {
+            .tile = ghost.tile,
+            .heading = static_cast<pacman::direction>(ghost.direction),
+            .ghost = ghost.ghost,
+            .dangerous = ghost.dangerous != 0,
+        };
+    }
+
+    const workspace_guard lock{topology->workspace_lock};
+    const let state_capacity = topology->tile_count * 4;
+    return pacman::build_predicted_threat_field(
+               {.tiles = {topology->tiles.get(), topology->tile_count}},
+               {inputs.data(), ghost_count}, horizon,
+               {.earliest_arrival = {topology->threat_distances.get(),
+                                     topology->tile_count},
+                .current = {topology->prediction_states.get(), state_capacity},
+                .next = {topology->prediction_states.get() + state_capacity,
+                         state_capacity},
+                .seen = {topology->prediction_seen.get(), state_capacity}},
+               {.eta = {threat_eta, topology->tile_count},
+                .owners = {threat_owners, topology->tile_count}})
+               ? PAC_OK
+               : PAC_INTERNAL_ERROR;
+}
+
+cfn PAC_API pac_topology_evaluate_actions(
+    pac_topology *topology, const uint16_t player_tile,
+    const uint32_t *threat_eta, const size_t threat_capacity,
+    pac_action_evaluation *actions, const size_t action_capacity,
+    uint16_t *reachable, const size_t reachable_capacity, size_t *action_count)
+    -> pac_status {
+    if (topology == nullptr || threat_eta == nullptr || actions == nullptr ||
+        reachable == nullptr || action_count == nullptr ||
+        static_cast<size_t>(player_tile) >= topology->tile_count) {
+        return PAC_INVALID_ARGUMENT;
+    }
+    *action_count = 0;
+    if (threat_capacity < topology->tile_count || action_capacity < 4 ||
+        reachable_capacity < topology->tile_count * 4) {
+        return PAC_BUFFER_TOO_SMALL;
+    }
+
+    std::array<pacman::action_evaluation, 4> evaluated{};
+    const workspace_guard lock{topology->workspace_lock};
+    if (!pacman::evaluate_actions(
+            {.tiles = {topology->tiles.get(), topology->tile_count}},
+            {threat_eta, topology->tile_count}, player_tile,
+            {.arrivals = {topology->option_arrivals.get(),
+                          topology->tile_count},
+             .queue = {topology->option_queue.get(), topology->tile_count}},
+            {.actions = evaluated,
+             .reachable = {reachable, topology->tile_count * 4}},
+            *action_count)) {
         return PAC_INTERNAL_ERROR;
     }
+    for (size_t index = 0; index < *action_count; index++) {
+        const let &item = evaluated[index];
+        actions[index] = {
+            .safe_tiles = static_cast<uint32_t>(item.safe_tiles),
+            .safe_intersections =
+                static_cast<uint32_t>(item.safe_intersections),
+            .horizon_ticks = static_cast<uint32_t>(item.horizon_ticks),
+            .minimum_margin = static_cast<int32_t>(item.minimum_margin),
+            .first_tile = item.first_tile,
+            .direction = static_cast<uint8_t>(item.action),
+            .has_minimum_margin = static_cast<uint8_t>(item.has_minimum_margin),
+        };
+    }
+    return PAC_OK;
+}
+
+cfn PAC_API pac_topology_simulate_action(pac_topology *topology,
+                                         const pac_simulation_input *input,
+                                         pac_simulation_result *result,
+                                         uint16_t *path,
+                                         const size_t path_capacity)
+    -> pac_status {
+    if (topology == nullptr || input == nullptr || result == nullptr ||
+        input->collectibles == nullptr || input->prediction_grid == nullptr ||
+        (input->ghost_combo_score_count != 0 &&
+         input->ghost_combo_scores == nullptr) ||
+        (path_capacity != 0 && path == nullptr) ||
+        input->action > PAC_DIRECTION_LEFT || input->ghost_count > 4 ||
+        static_cast<size_t>(input->origin) >= topology->tile_count ||
+        input->horizon == 0 || input->state_capacity == 0 ||
+        input->horizon == std::numeric_limits<uint32_t>::max() ||
+        input->collectible_count != topology->tile_count ||
+        static_cast<size_t>(input->horizon) + 1 >
+            std::numeric_limits<size_t>::max() / (topology->tile_count * 4) ||
+        input->prediction_count != (static_cast<size_t>(input->horizon) + 1) *
+                                       4 * topology->tile_count) {
+        return PAC_INVALID_ARGUMENT;
+    }
+    if (path_capacity < static_cast<size_t>(input->horizon) + 1) {
+        return PAC_BUFFER_TOO_SMALL;
+    }
+
+    std::unique_ptr<pacman::collectible[]> collectibles{
+        new (std::nothrow) pacman::collectible[topology->tile_count]{}};
+    if (!collectibles) {
+        return PAC_INTERNAL_ERROR;
+    }
+    for (size_t tile = 0; tile < topology->tile_count; tile++) {
+        if (input->collectibles[tile] > 2) {
+            return PAC_INVALID_ARGUMENT;
+        }
+        collectibles[tile] =
+            static_cast<pacman::collectible>(input->collectibles[tile]);
+    }
+    uint8_t seen_ghosts = 0;
+    for (size_t index = 0; index < input->ghost_count; index++) {
+        const let ghost = input->ghost_order[index];
+        if (ghost >= 4 || (seen_ghosts & (1u << ghost)) != 0) {
+            return PAC_INVALID_ARGUMENT;
+        }
+        seen_ghosts |= static_cast<uint8_t>(1u << ghost);
+    }
+
+    pacman::branch_result searched{};
+    const let status = pacman::search_action(
+        {.tiles = {topology->tiles.get(), topology->tile_count}},
+        {collectibles.get(), topology->tile_count},
+        {.states = {input->prediction_grid, input->prediction_count},
+         .ghost_order = {input->ghost_order, input->ghost_count},
+         .tile_count = topology->tile_count,
+         .tick_count = static_cast<size_t>(input->horizon) + 1},
+        input->origin, static_cast<pacman::direction>(input->action),
+        input->horizon,
+        {.pacgum_score = input->pacgum_score,
+         .power_pellet_score = input->power_pellet_score,
+         .frightened_ticks = input->frightened_ticks,
+         .ghost_combo_scores = {input->ghost_combo_scores,
+                                input->ghost_combo_score_count}},
+        input->state_capacity, {path, path_capacity}, searched);
+    switch (status) {
+    case pacman::branch_search_status::invalid_input:
+        return PAC_INVALID_ARGUMENT;
+    case pacman::branch_search_status::out_of_memory:
+        return PAC_INTERNAL_ERROR;
+    case pacman::branch_search_status::capacity_exceeded:
+        return PAC_CAPACITY_EXCEEDED;
+    case pacman::branch_search_status::ok:
+        break;
+    }
+
+    *result = {
+        .score_gained = searched.best.score_gained,
+        .survival_horizon = static_cast<uint32_t>(searched.best.tick),
+        .pacgums_eaten = static_cast<uint32_t>(searched.best.pacgums_eaten),
+        .power_pellets_eaten =
+            static_cast<uint32_t>(searched.best.power_pellets_eaten),
+        .ghosts_eaten = static_cast<uint32_t>(
+            std::popcount(searched.best.eaten_ghost_mask)),
+        .remaining_power_ticks = searched.best.frightened_remaining,
+        .path_length = static_cast<uint32_t>(searched.path_length),
+        .died = static_cast<uint8_t>(searched.best.died),
+        .reserved = {},
+    };
     return PAC_OK;
 }
 
@@ -225,7 +660,7 @@ cfn PAC_API pac_bfs_distances(const pac_tile_neighbors *tiles,
         return PAC_INTERNAL_ERROR;
     }
 
-    for (size_t tile = 0; tile < tile_count; ++tile) {
+    for (size_t tile = 0; tile < tile_count; tile++) {
         const let &source = tiles[tile];
 
         if (source.count > 4) {
@@ -235,7 +670,7 @@ cfn PAC_API pac_bfs_distances(const pac_tile_neighbors *tiles,
         let &destination = graph_tiles[tile];
         destination.count = source.count;
 
-        for (size_t index = 0; index < source.count; ++index) {
+        for (size_t index = 0; index < source.count; index++) {
             const let &source_move = source.moves[index];
 
             if (static_cast<size_t>(source_move.destination) >= tile_count ||

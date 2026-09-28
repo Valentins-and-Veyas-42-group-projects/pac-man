@@ -3,7 +3,7 @@ CompileFlags:
 
 Diagnostics:
   UnusedIncludes: Strict
-  # clangd's include-cleaner does not understand names supplied by imports yet.
+  # include-cleaner does not understand names supplied by imports from modules yet
   MissingIncludes: None
 
 InlayHints:
@@ -13,3 +13,10 @@ InlayHints:
 
 Hover:
   ShowAKA: true
+
+---
+If:
+  PathMatch: native/abi/native\.cpp
+Diagnostics:
+  # more clangd struggeling with modules
+  UnusedIncludes: None

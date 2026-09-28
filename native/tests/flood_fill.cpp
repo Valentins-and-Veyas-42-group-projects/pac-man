@@ -14,6 +14,12 @@ import pacman.graph;
 import pacman.topology;
 import pacman.types;
 
+fn run_prediction_tests() -> int;
+fn run_options_tests() -> int;
+fn run_simulation_tests() -> int;
+fn run_branch_search_tests() -> int;
+fn run_abi_simulation_tests() -> int;
+
 [[nodiscard]]
 fn test_cross_word_bitboard_operations() noexcept -> bool {
     constexpr let tile_count = std::size_t{130};
@@ -114,7 +120,7 @@ fn test_topology_masks() noexcept -> bool {
     let graph_result = pacman::tile_set_view{graph_words, 3};
     let masked_result = pacman::tile_set_view{masked_words, 3};
 
-    for (std::size_t tile = 0; tile < tiles.size(); ++tile) {
+    for (std::size_t tile = 0; tile < tiles.size(); tile++) {
         frontier.clear();
         frontier.set(tile);
         pacman::detail::expand_frontier_unchecked(
@@ -198,6 +204,24 @@ fn test_bfs_distances() noexcept -> bool {
 }
 
 fn main() -> int {
+    if (const let abi_status = run_abi_simulation_tests(); abi_status != 0) {
+        return abi_status;
+    }
+    if (const let branch_status = run_branch_search_tests();
+        branch_status != 0) {
+        return branch_status;
+    }
+    if (const let simulation_status = run_simulation_tests();
+        simulation_status != 0) {
+        return simulation_status;
+    }
+    if (const let options_status = run_options_tests(); options_status != 0) {
+        return options_status;
+    }
+    if (const let prediction_status = run_prediction_tests();
+        prediction_status != 0) {
+        return prediction_status;
+    }
     if (!test_cross_word_bitboard_operations()) {
         return 1;
     }
@@ -222,8 +246,8 @@ fn main() -> int {
         return static_cast<pacman::tile_index>(y * width + x);
     };
 
-    for (std::size_t y = 0; y < height; ++y) {
-        for (std::size_t x = 0; x < width; ++x) {
+    for (std::size_t y = 0; y < height; y++) {
+        for (std::size_t x = 0; x < width; x++) {
             let index = y * width + x;
             let up = (y + height - 1) % height;
             let right = (x + 1) % width;

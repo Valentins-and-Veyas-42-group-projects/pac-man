@@ -13,6 +13,7 @@ from pacman.analyze.outcomes import ActionOutcome, summarize_simulation
 from pacman.analyze.prediction import GhostPrediction, build_predicted_threat_field, predict_ghost
 from pacman.analyze.reasons import explain_evaluation
 from pacman.analyze.simulation import SimulationRules, simulate_action
+from pacman.analyze.simulation_bridge import accelerated_outcome, prepare_simulation
 from pacman.replay.models import CollectibleChange, Direction, Frame, Maze
 
 
@@ -76,15 +77,21 @@ def analyze_decision(
     frame: Frame,
     played_action: Direction,
     rules: SimulationRules,
+    known_collectibles: Option[CollectibleField] = Nothing(),
 ) -> Result[DecisionAnalysis, DecisionAnalysisError]:
     """Evaluate one recorded choice against bounded alternatives.
 
     Returns:
         Composed tactical analysis or the stage that failed.
     """
-    collectible_field = reconstruct_collectibles(maze, changes, frame.tick)
-    if isinstance(collectible_field, Err):
-        return decision_err(DecisionAnalysisError.COLLECTIBLES)
+    collectible_field: Some[CollectibleField] | Ok[CollectibleField]
+    if isinstance(known_collectibles, Some):
+        collectible_field = known_collectibles
+    else:
+        reconstructed = reconstruct_collectibles(maze, changes, frame.tick)
+        if isinstance(reconstructed, Err):
+            return decision_err(DecisionAnalysisError.COLLECTIBLES)
+        collectible_field = reconstructed
 
     predictions: list[GhostPrediction] = []
     for ghost in frame.ghosts:
@@ -107,7 +114,14 @@ def analyze_decision(
         return decision_err(DecisionAnalysisError.OPTIONS)
 
     outcomes: list[ActionOutcome] = []
+    prepared = prepare_simulation(collectible_field.value, tuple(predictions), player_tile, rules)
     for move in graph.neighbors(player_tile):
+        safety = option_for(options.value, move.direction)
+        if not isinstance(prepared, Nothing):
+            accelerated = accelerated_outcome(graph, prepared.value, move.direction, safety)
+            if not isinstance(accelerated, Nothing):
+                outcomes.append(accelerated.value)
+                continue
         simulation = simulate_action(
             graph,
             collectible_field.value,
@@ -120,7 +134,7 @@ def analyze_decision(
             return decision_err(DecisionAnalysisError.SIMULATION)
         outcome = summarize_simulation(
             simulation.value,
-            option_for(options.value, move.direction),
+            safety,
         )
         if isinstance(outcome, Err):
             return decision_err(DecisionAnalysisError.OUTCOME)

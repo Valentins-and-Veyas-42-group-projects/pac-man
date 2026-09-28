@@ -11,9 +11,8 @@ module;
 
 export module pacman.bfs;
 
-// BFS grows through the maze one ring at a time. That newest ring is called
-// the frontier. Every tile in one frontier is the same distance from the
-// start, so the first frontier that reaches a tile gives its shortest distance.
+// Each frontier is one distance layer. Recording a tile on first discovery
+// gives its shortest distance without a priority queue.
 //
 //                 +---+
 //                 | 2 |
@@ -36,7 +35,8 @@ using path_distance = std::uint32_t;
 inline constexpr path_distance unreachable_distance =
     std::numeric_limits<path_distance>::max();
 
-/// Computes the shortest unweighted distance from an origin to every tile.
+/// Write shortest distances, or unreachable_distance, using distinct worksets.
+/// Returns false for an invalid graph, origin, or workspace.
 [[nodiscard]]
 fn bfs_distances(const graph_view graph, const tile_index origin,
                  std::span<path_distance> distances, tile_set_view visited,
@@ -83,9 +83,10 @@ fn bfs_distances(const graph_view graph, const tile_index origin,
 
         let has_next = false;
 
-        // Fuse discovery, visited update, frontier copy, and distance writing.
+        // One word pass removes old tiles and forms the next frontier; only
+        // newly discovered bits need individual distance writes.
         for (std::size_t word_index = 0; word_index < next.words.size();
-             ++word_index) {
+             word_index++) {
             let pending = next.words[word_index] & ~visited.words[word_index];
 
             next.words[word_index] = pending;
@@ -117,7 +118,8 @@ fn bfs_distances(const graph_view graph, const tile_index origin,
     return true;
 }
 
-/// Computes distances using directional masks built from a validated graph.
+/// Write shortest distances using prevalidated directional topology masks.
+/// Four shifts replace per-tile neighbor walks for ordinary grid edges.
 [[nodiscard]]
 fn bfs_distances_masked(const topology_masks &topology,
                         const std::size_t tile_count, const tile_index origin,
@@ -167,7 +169,7 @@ fn bfs_distances_masked(const topology_masks &topology,
                                          next);
 
         let has_next = false;
-        for (std::size_t word_index = 0; word_index < words; ++word_index) {
+        for (std::size_t word_index = 0; word_index < words; word_index++) {
             let pending = next.words[word_index] & ~visited.words[word_index];
             next.words[word_index] = pending;
             visited.words[word_index] |= pending;

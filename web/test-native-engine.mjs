@@ -18,11 +18,69 @@ addMove(1, 0, 0, 3);
 addMove(1, 1, 2, 1);
 addMove(2, 0, 1, 3);
 
-assert.equal(engine.abiVersion(), 2);
+assert.equal(engine.abiVersion(), 3);
 assert.deepEqual(engine.bfsDistances(graph, 3, 3, 0), [0, 1, 2]);
+assert.deepEqual(engine.bfsDistancesGraph(graph, 3, 3, 0), [0, 1, 2]);
 const topology = engine.createTopology(graph, 3, 3);
 assert.notEqual(topology, 0);
 assert.deepEqual(engine.topologyBfsDistances(topology, 3, 0), [0, 1, 2]);
 assert.deepEqual(engine.topologyBfsDistances(topology, 3, 2), [2, 1, 0]);
+assert.deepEqual(engine.topologyBfsDistancesGraph(topology, 3, 0), [0, 1, 2]);
+assert.deepEqual(engine.topologyBfsDistancesMasked(topology, 3, 0), [0, 1, 2]);
+assert.deepEqual(engine.topologyBfsMany(topology, 3, [0, 2]), [[0, 1, 2], [2, 1, 0]]);
+assert.deepEqual(
+    engine.topologyAnalyzeDistances(topology, 3, 1, [0, 0, 0, 1, 2, 0, 1, 1]),
+    {
+        playerDistances: [1, 0, 1],
+        threatEtas: [0, 1, 0],
+        threatOwnerMasks: [1, 3, 2],
+    },
+);
+assert.deepEqual(
+    engine.topologyThreatField(topology, 3, [0, 0, 0, 1, 2, 0, 1, 1]),
+    {
+        etas: [0, 1, 0],
+        ownerMasks: [1, 3, 2],
+    },
+);
+assert.deepEqual(
+    engine.topologyPredictThreat(
+        topology,
+        3,
+        [0, 0, 1, 0, 1, 0, 0, 0, 2, 0, 3, 1, 1, 0, 0, 0],
+        1,
+    ),
+    {
+        etas: [0, 1, 0],
+        ownerMasks: [1, 3, 2],
+    },
+);
+assert.deepEqual(engine.topologyEvaluateActions(topology, 3, 0, [-1, 3, 2]), [
+    {
+        direction: 1,
+        firstTile: 1,
+        reachableTiles: [1, 0],
+        safeTiles: 2,
+        safeIntersections: 0,
+        horizonTicks: 2,
+        minimumMargin: 2,
+    },
+]);
+assert.deepEqual(
+    engine.topologySimulateAction(
+        topology, 3, [0, 1, 2], new Uint8Array(4 * 4 * 3), [],
+        0, 1, 3, 10, 50, 8, [200, 400, 800, 1600],
+    ),
+    {
+        scoreGained: 60,
+        survivalHorizon: 3,
+        pacgumsEaten: 1,
+        powerPelletsEaten: 1,
+        ghostsEaten: 0,
+        remainingPowerTicks: 7,
+        died: false,
+        path: [0, 1, 2, 1],
+    },
+);
 engine.destroyTopology(topology);
-console.log("Browser bridge: WASM BFS returned [0, 1, 2]");
+console.log("Browser bridge: WASM BFS, threats, actions, and simulation passed");

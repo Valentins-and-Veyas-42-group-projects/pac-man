@@ -82,3 +82,31 @@ jobs:
 
       - name: Run highscore ingestion smoke benchmark
         run: uv run python -m benchmarks.highscore_ingestion --games 1000 --rounds 1
+
+  analysis:
+    name: Backend benchmarks and sanitizers
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          enable-cache: true
+
+      - name: Install xmake
+        uses: xmake-io/github-action-setup-xmake@3a1a5dddfc7fa625d9a698738334bf55655a861a # v1
+        with:
+          xmake-version: '3.1.1'
+
+      - name: Install Emscripten
+        uses: emscripten-core/setup-emsdk@4528d102f7230f0e7b276855c01ea1159be0e984 # v16
+        with:
+          version: '6.0.3'
+
+      - name: Install locked dependencies
+        run: uv sync --locked --dev
+
+      - name: Compare Python, native, and WASM; run native sanitizers
+        run: make benchmark

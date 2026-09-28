@@ -5,12 +5,17 @@ from enum import Enum
 
 from typed_errs import Err, Nothing, Ok, Option, Result, Some
 
-from pacman.analyze.distance_backend import distances
+from pacman.analyze.distance_backend import accelerated_threat_field, distances
 from pacman.analyze.models import MazeGraph
 from pacman.analyze.state import GhostDistance
 from pacman.replay.models import Ghost, TileIndex
 
 NO_THREAT = -1
+GHOST_MASK = (1 << len(Ghost)) - 1
+GHOSTS_BY_MASK = tuple(
+    tuple(ghost for ghost in Ghost if mask & (1 << int(ghost)))
+    for mask in range(GHOST_MASK + 1)
+)
 
 
 class ThreatError(Enum):
@@ -81,16 +86,25 @@ def build_threat_field(
     Returns:
         Combined threat field or a typed validation error.
     """
-    etas = [NO_THREAT] * len(graph.moves)
-    owners: list[list[Ghost]] = [[] for _ in graph.moves]
-
-    for ghost in ghosts:
-        if not ghost.dangerous:
-            continue
-
+    dangerous_ghosts = tuple(ghost for ghost in ghosts if ghost.dangerous)
+    for ghost in dangerous_ghosts:
         if not graph.contains(ghost.tile):
             return threat_err(ThreatError.INVALID_GHOST_TILE)
 
+    if graph.moves:
+        accelerated = accelerated_threat_field(graph, dangerous_ghosts)
+        if isinstance(accelerated, Some):
+            return Ok(
+                ThreatField(
+                    etas=accelerated.value.etas,
+                    ghosts=tuple(GHOSTS_BY_MASK[mask & GHOST_MASK] for mask in accelerated.value.owner_masks),
+                )
+            )
+
+    etas = [NO_THREAT] * len(graph.moves)
+    owners: list[list[Ghost]] = [[] for _ in graph.moves]
+
+    for ghost in dangerous_ghosts:
         distance_field = distances(graph, ghost.tile)
 
         if isinstance(distance_field, Err):
