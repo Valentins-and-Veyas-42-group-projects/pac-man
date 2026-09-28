@@ -36,9 +36,18 @@ class Position:
 class GhostName(Enum):
     """The four ghosts, one per maze corner."""
 
+    BLINKY = 0
+    PINKY = 1
+    INKY = 2
+    CLYDE = 3
+
 
 class GhostMode(Enum):
     """A ghost's current behavior state."""
+
+    CHASING = 0
+    FRIGHTENED = 1
+    EATEN = 2
 
 
 @dataclass
@@ -53,6 +62,14 @@ class Player:
 @dataclass
 class Ghost:
     """A single ghost entity."""
+
+    name: GhostName
+    position: Position
+    facing_direction: Direction
+    mode: GhostMode
+    home_pos: Position
+    frightened_timer: int
+    eaten_timer: int
 
 
 class Screen(Enum):
