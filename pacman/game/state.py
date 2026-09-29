@@ -97,7 +97,8 @@ class GameState:
         )
 
     def lose_life(self) -> GameState:
-        """Handle the player being touched by a non-edible ghost:
+        """
+        Handle the player being touched by a non-edible ghost:
         decrement lives and respawn, or transition to game over.
         """
         new_lives = self.player.lives - 1
@@ -108,7 +109,8 @@ class GameState:
         return replace(self, player=new_player, ghosts=_spawn_ghosts(self.board.maze))
 
     def update(self, dt: float) -> GameState:
-        """Advance the game by one tick: moves ghosts, checks pacgum and
+        """
+        Advance the game by one tick: moves ghosts, checks pacgum and
         ghost collisions, and ticks down the level timer.
         """
         new_player = self.player
