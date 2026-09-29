@@ -75,6 +75,14 @@ class Ghost:
 class Screen(Enum):
     """Which UI screen is currently active."""
 
+    MAIN_MENU = 0
+    INSTRUCTIONS = 1
+    HIGHSCORES = 2
+    PLAYING = 3
+    PAUSED = 4
+    GAME_OVER = 5
+    VICTORY = 6
+
 
 @dataclass(frozen=True, slots=True)
 class HighscoreEntry:
