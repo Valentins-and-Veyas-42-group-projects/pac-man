@@ -32,6 +32,8 @@ def update_ghost(ghost: Ghost, player: Player, board: Board, dt: float) -> Ghost
     match ghost.mode:
         case GhostMode.CHASING:
             directions = _legal_directions(ghost, board)
+            if not directions:
+                return ghost
             chosen = _best_direction(ghost, directions, player.position, True)
             dx, dy = chosen.value
             new_pos = Position(ghost.position.x + dx, ghost.position.y + dy)
@@ -42,6 +44,8 @@ def update_ghost(ghost: Ghost, player: Player, board: Board, dt: float) -> Ghost
                 return replace(ghost, mode=GhostMode.CHASING, frightened_timer=0)
             else:
                 directions = _legal_directions(ghost, board)
+                if not directions:
+                    return replace(ghost, frightened_timer=new_timer)
                 chosen = _best_direction(ghost, directions, player.position, False)
                 dx, dy = chosen.value
                 new_pos = Position(ghost.position.x + dx, ghost.position.y + dy)
@@ -76,21 +80,27 @@ def _legal_directions(ghost: Ghost, board: Board) -> list[Direction]:
     return non_reverse if non_reverse else valid
 
 
+def _distance(ghost: Ghost, direction: Direction, target: Position) -> int:
+    dx, dy = direction.value
+    candidate = Position(ghost.position.x + dx, ghost.position.y + dy)
+    return abs(candidate.x - target.x) + abs(candidate.y - target.y)
+
+
 def _best_direction(
     ghost: Ghost, directions: list[Direction], target: Position, minimize: bool
 ) -> Direction:
-    best: Direction | None = None
-    for direction in directions:
-        dx, dy = direction.value
-        candidate = Position(ghost.position.x + dx, ghost.position.y + dy)
-        distance = abs(candidate.x - target.x) + abs(candidate.y - target.y)
-        if best is None:
+    """Pick the direction with the smallest/largest distance to `target`.
+
+    `directions` must be non-empty; ties keep the first candidate seen,
+    which follows `Direction`'s declaration order (UP, DOWN, LEFT, RIGHT).
+    """
+    best = directions[0]
+    best_distance = _distance(ghost, best, target)
+    for direction in directions[1:]:
+        distance = _distance(ghost, direction, target)
+        if (minimize and distance < best_distance) or (not minimize and distance > best_distance):
             best = direction
             best_distance = distance
-        elif (minimize and distance < best_distance) or (not minimize and distance > best_distance):
-            best = direction
-            best_distance = distance
-    assert best is not None
     return best
 
 
