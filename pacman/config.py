@@ -32,6 +32,7 @@ CONFIG_KEYS = (
     "levels",
     "lives",
     "pacgum",
+    "super_pacgum",
     "points_per_pacgum",
     "points_per_super_pacgum",
     "points_per_ghost",
@@ -96,6 +97,7 @@ class Config:
         highscore_filename: Path used for persistent highscores.
         lives: Number of starting lives.
         pacgum: Number of normal pacgums generated for a level.
+        super_pacgum: Number of super pacgums generated for a level.
         points_per_pacgum: Score awarded for a normal pacgum.
         points_per_super_pacgum: Score awarded for a super pacgum.
         points_per_ghost: Score awarded for eating a ghost.
@@ -106,6 +108,7 @@ class Config:
     highscore_filename: str
     lives: int
     pacgum: int
+    super_pacgum: int
     points_per_pacgum: int
     points_per_super_pacgum: int
     points_per_ghost: int
@@ -208,6 +211,7 @@ def _recovery_diagnostics(
         "levels": list,
         "lives": int,
         "pacgum": int,
+        "super_pacgum": int,
         "points_per_pacgum": int,
         "points_per_super_pacgum": int,
         "points_per_ghost": int,
@@ -236,6 +240,7 @@ def _recovery_diagnostics(
     integer_ranges = {
         "lives": (1, 99),
         "pacgum": (1, 1_000_000),
+        "super_pacgum": (0, 1_000_000),
         "points_per_pacgum": (0, 1_000_000),
         "points_per_super_pacgum": (0, 1_000_000),
         "points_per_ghost": (0, 1_000_000),
@@ -637,6 +642,13 @@ def validate_config(
             minimum=Some(1),
             maximum=Some(1_000_000),
         ),
+        super_pacgum=_int_field(
+            data,
+            "super_pacgum",
+            defaults.super_pacgum,
+            minimum=Some(0),
+            maximum=Some(1_000_000),
+        ),
         points_per_pacgum=_int_field(
             data,
             "points_per_pacgum",
@@ -710,6 +722,7 @@ def default_config() -> Config:
         highscore_filename="highscores.db",
         lives=3,
         pacgum=42,
+        super_pacgum=4,
         points_per_pacgum=10,
         points_per_super_pacgum=50,
         points_per_ghost=200,
