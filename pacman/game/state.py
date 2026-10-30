@@ -178,7 +178,9 @@ class GameState:
                         continue
             working_ghosts.append(g)
 
-        new_ghosts = [update_ghost(g, new_player, self.board, dt) for g in working_ghosts]
+        new_ghosts = [
+            update_ghost(g, new_player, self.board, dt, working_ghosts) for g in working_ghosts
+        ]
         new_board = self.board
         eaten_board = new_board.eat_pacgum(new_player.position)
         if eaten_board is not None:

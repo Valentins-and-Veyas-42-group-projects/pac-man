@@ -8,7 +8,7 @@ etc.) is left open by the subject.
 
 from dataclasses import replace
 
-from ..models import Direction, Ghost, GhostMode, Player, Position
+from ..models import Direction, Ghost, GhostMode, GhostName, Player, Position
 from .board import Board
 
 FRIGHTENED_TICKS = 360
@@ -16,7 +16,9 @@ RESPAWN_TICKS = 90
 TICK_RATE = 60
 
 
-def update_ghost(ghost: Ghost, player: Player, board: Board, dt: float) -> Ghost:
+def update_ghost(
+    ghost: Ghost, player: Player, board: Board, dt: float, all_ghosts: list[Ghost]
+) -> Ghost:
     """Advance a single ghost by one tick, based on its current mode.
 
     Args:
@@ -29,12 +31,13 @@ def update_ghost(ghost: Ghost, player: Player, board: Board, dt: float) -> Ghost
         The updated `Ghost`.
     """
     ticks = round(dt * 60)
+    blinky = next(g for g in all_ghosts if g.name is GhostName.BLINKY)
     match ghost.mode:
         case GhostMode.CHASING:
             directions = _legal_directions(ghost, board)
             if not directions:
                 return ghost
-            chosen = _best_direction(ghost, directions, player.position, True)
+            chosen = _best_direction(ghost, directions, _target_for(ghost, player, blinky), True)
             dx, dy = chosen.value
             new_pos = Position(ghost.position.x + dx, ghost.position.y + dy)
             return replace(ghost, position=new_pos, mode=GhostMode.CHASING, facing_direction=chosen)
@@ -64,6 +67,24 @@ def update_ghost(ghost: Ghost, player: Player, board: Board, dt: float) -> Ghost
                 return replace(ghost, eaten_timer=new_timer)
 
 
+def _target_for(ghost: Ghost, player: Player, blinky: Ghost) -> Position:
+    match ghost.name:
+        case GhostName.BLINKY:
+            return player.position
+        case GhostName.PINKY:
+            dx, dy = player.facing_direction.value
+            return Position(player.position.x + dx * 4, player.position.y + dy * 4)
+        case GhostName.INKY:
+            dx, dy = player.facing_direction.value
+            p2 = Position(player.position.x + dx * 2, player.position.y + dy * 2)
+            return Position(2 * p2.x - blinky.position.x, 2 * p2.y - blinky.position.y)
+        case GhostName.CLYDE:
+            manhatten_distance = _manhattan_distance(ghost, player)
+            if manhatten_distance > 8:
+                return player.position
+            return ghost.home_pos
+
+
 def _legal_directions(ghost: Ghost, board: Board) -> list[Direction]:
     reverse_dict = {
         Direction.UP: Direction.DOWN,
@@ -78,6 +99,10 @@ def _legal_directions(ghost: Ghost, board: Board) -> list[Direction]:
     reverse = reverse_dict[ghost.facing_direction]
     non_reverse = [d for d in valid if d != reverse]
     return non_reverse if non_reverse else valid
+
+
+def _manhattan_distance(ghost: Ghost, player: Player) -> int:
+    return abs(ghost.position.x - player.position.x) + abs(ghost.position.y - player.position.y)
 
 
 def _distance(ghost: Ghost, direction: Direction, target: Position) -> int:

@@ -69,7 +69,9 @@ def test_eat_ghost_switches_to_eaten_and_clears_fright_timer() -> None:
 
 def test_respawn_ghost_returns_home_chasing_with_timers_cleared() -> None:
     """Respawning always lands on the ghost's own home corner."""
-    ghost = _ghost(position=Position(2, 2), mode=GhostMode.EATEN, eaten_timer=30, home=Position(0, 2))
+    ghost = _ghost(
+        position=Position(2, 2), mode=GhostMode.EATEN, eaten_timer=30, home=Position(0, 2)
+    )
 
     result = respawn_ghost(ghost)
 
@@ -88,7 +90,7 @@ def test_update_ghost_chasing_moves_toward_the_player() -> None:
     player = Player(position=Position(2, 0), score=0)
     ghost = _ghost(position=Position(0, 0), facing=Direction.DOWN, mode=GhostMode.CHASING)
 
-    result = update_ghost(ghost, player, board, dt=1 / 60)
+    result = update_ghost(ghost, player, board, dt=1 / 60, all_ghosts=[ghost])
 
     assert result.position == Position(1, 0)
     assert result.facing_direction is Direction.RIGHT
@@ -106,7 +108,7 @@ def test_update_ghost_frightened_moves_away_from_the_player() -> None:
         frightened_timer=120,
     )
 
-    result = update_ghost(ghost, player, board, dt=1 / 60)
+    result = update_ghost(ghost, player, board, dt=1 / 60, all_ghosts=[ghost])
 
     assert result.position == Position(0, 1)
     assert result.mode is GhostMode.FRIGHTENED
@@ -119,7 +121,7 @@ def test_update_ghost_frightened_timer_expiry_returns_to_chasing() -> None:
     player = Player(position=Position(2, 0), score=0)
     ghost = _ghost(position=Position(0, 0), mode=GhostMode.FRIGHTENED, frightened_timer=1)
 
-    result = update_ghost(ghost, player, board, dt=1 / 60)
+    result = update_ghost(ghost, player, board, dt=1 / 60, all_ghosts=[ghost])
 
     assert result.mode is GhostMode.CHASING
     assert result.frightened_timer == 0
@@ -132,7 +134,7 @@ def test_update_ghost_frightened_large_dt_clamps_instead_of_going_negative() -> 
     player = Player(position=Position(2, 0), score=0)
     ghost = _ghost(position=Position(0, 0), mode=GhostMode.FRIGHTENED, frightened_timer=10)
 
-    result = update_ghost(ghost, player, board, dt=1000)
+    result = update_ghost(ghost, player, board, dt=1000, all_ghosts=[ghost])
 
     assert result.frightened_timer == 0
     assert result.mode is GhostMode.CHASING
@@ -147,7 +149,7 @@ def test_update_ghost_eaten_counts_down_without_moving() -> None:
     player = Player(position=Position(2, 0), score=0)
     ghost = _ghost(position=Position(1, 1), mode=GhostMode.EATEN, eaten_timer=RESPAWN_TICKS)
 
-    result = update_ghost(ghost, player, board, dt=1 / 60)
+    result = update_ghost(ghost, player, board, dt=1 / 60, all_ghosts=[ghost])
 
     assert result.mode is GhostMode.EATEN
     assert result.eaten_timer == RESPAWN_TICKS - 1
@@ -158,9 +160,11 @@ def test_update_ghost_eaten_large_dt_respawns_at_home() -> None:
     """A huge dt still safely lands the ghost back home, not mid-corridor."""
     board = Board(maze=OPEN_3X3)
     player = Player(position=Position(2, 0), score=0)
-    ghost = _ghost(position=Position(1, 1), mode=GhostMode.EATEN, eaten_timer=5, home=Position(0, 2))
+    ghost = _ghost(
+        position=Position(1, 1), mode=GhostMode.EATEN, eaten_timer=5, home=Position(0, 2)
+    )
 
-    result = update_ghost(ghost, player, board, dt=1000)
+    result = update_ghost(ghost, player, board, dt=1000, all_ghosts=[ghost])
 
     assert result.position == ghost.home_pos
     assert result.mode is GhostMode.CHASING
@@ -194,8 +198,12 @@ def test_update_ghost_with_no_legal_moves_stays_put_instead_of_crashing() -> Non
     chasing = _ghost(position=Position(1, 1), mode=GhostMode.CHASING)
     frightened = _ghost(position=Position(1, 1), mode=GhostMode.FRIGHTENED, frightened_timer=60)
 
-    chasing_result = update_ghost(chasing, player, board, dt=1 / 60)
-    frightened_result = update_ghost(frightened, player, board, dt=1 / 60)
+    chasing_result = update_ghost(
+        chasing, player, board, dt=1 / 60, all_ghosts=[chasing, frightened]
+    )
+    frightened_result = update_ghost(
+        frightened, player, board, dt=1 / 60, all_ghosts=[chasing, frightened]
+    )
 
     assert chasing_result.position == Position(1, 1)
     assert frightened_result.position == Position(1, 1)
@@ -218,7 +226,7 @@ def test_update_ghost_is_deterministic() -> None:
     player = Player(position=Position(2, 0), score=0)
     ghost = _ghost(position=Position(0, 0))
 
-    first = update_ghost(ghost, player, board, dt=1 / 60)
-    second = update_ghost(ghost, player, board, dt=1 / 60)
+    first = update_ghost(ghost, player, board, dt=1 / 60, all_ghosts=[ghost])
+    second = update_ghost(ghost, player, board, dt=1 / 60, all_ghosts=[ghost])
 
     assert first == second

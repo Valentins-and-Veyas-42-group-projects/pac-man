@@ -56,6 +56,7 @@ class Player:
 
     position: Position
     score: int
+    facing_direction: Direction = Direction.RIGHT
     lives: int = 3
 
 

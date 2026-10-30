@@ -21,7 +21,7 @@ def move(player: Player, board: Board, direction: Direction) -> Player:
         return player
     dx, dy = direction.value
     newpos = Position(player.position.x + dx, player.position.y + dy)
-    return replace(player, position=newpos)
+    return replace(player, position=newpos, facing_direction=direction)
 
 
 def respawn(player: Player, center: Position) -> Player:
