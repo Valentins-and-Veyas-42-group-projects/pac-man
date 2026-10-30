@@ -82,6 +82,7 @@ class Screen(Enum):
     PAUSED = 4
     GAME_OVER = 5
     VICTORY = 6
+    ERROR = 7
 
 
 @dataclass(frozen=True, slots=True)

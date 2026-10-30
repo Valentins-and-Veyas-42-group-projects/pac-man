@@ -79,10 +79,19 @@ def spawn_pacgums(
         reachable.remove(closest)
         super_tiles.append(closest)
     extra_supers = super_pacgum_count - len(super_tiles)
+
+    # A tiny maze may not have enough open tiles for every requested
+    # pacgum/super-pacgum. Clamp the total to what's actually available,
+    # and let supers claim their share of that total first since losing
+    # one is more noticeable than a few missing normal pacgums.
+    available = len(reachable)
+    total_needed = pacgum_count + extra_supers
+    k = min(total_needed, available)
+    clamped_extra_supers = min(extra_supers, k)
     rng = random.Random(seed.unwrap_or(0))
-    chosen = rng.sample(list(reachable), pacgum_count + extra_supers)
-    overflow_supers = chosen[:extra_supers]
-    normal_tiles = chosen[extra_supers:]
+    chosen = rng.sample(list(reachable), k)
+    overflow_supers = chosen[:clamped_extra_supers]
+    normal_tiles = chosen[clamped_extra_supers:]
     all_supers = super_tiles + overflow_supers
     return (
         frozenset(Position(*tile) for tile in normal_tiles),

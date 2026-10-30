@@ -10,8 +10,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 
+from typed_errs import Err
+
 from pacman.config import Config
-from pacman.game.board import Board
+from pacman.game.board import Board, spawn_pacgums
 from pacman.game.ghosts import eat_ghost, set_frightened, update_ghost
 from pacman.game.player import respawn
 from pacman.maze_loader import Maze, load_maze
@@ -63,10 +65,37 @@ class GameState:
     remaining_time: float
     highscores: list[HighscoreEntry]
     name_entry: str
+    error_msg: str
 
     def start_game(self) -> GameState:
         """Transition from the main menu into level 1."""
-        raise NotImplementedError
+        level = self.config.levels[0]
+        maze_result = load_maze(level.width, level.height, level.seed)
+        if isinstance(maze_result, Err):
+            return replace(
+                self,
+                screen=Screen.ERROR,
+                error_msg=maze_result.context_msg or "Failed to generate the maze.",
+            )
+        new_maze = maze_result.value
+        pacgums, super_pacgums = spawn_pacgums(
+            new_maze, self.config.pacgum, self.config.super_pacgum, level.seed
+        )
+        new_board = Board(maze=new_maze, pacgums=pacgums, super_pacgums=super_pacgums)
+        ghosts = _spawn_ghosts(new_maze)
+        return replace(
+            self,
+            board=new_board,
+            player=replace(
+                self.player, position=Position(*new_maze.entry), score=0, lives=self.config.lives
+            ),
+            ghosts=ghosts,
+            level_idx=0,
+            remaining_time=level.time,
+            screen=Screen.PLAYING,
+            name_entry="",
+            error_msg="",
+        )
 
     def pause(self) -> GameState:
         """Transition into the pause screen."""
@@ -81,10 +110,20 @@ class GameState:
         victory screen if that was the last level."""
         next_idx = self.level_idx + 1
         if next_idx >= len(self.config.levels):
-            return replace(self, screen=Screen.VICTORY)
+            return replace(self, screen=Screen.VICTORY, error_msg="")
         next_lvl = self.config.levels[next_idx]
-        new_maze = load_maze(next_lvl.width, next_lvl.height, next_lvl.seed).unwrap()
-        new_board = Board(maze=new_maze)
+        maze_result = load_maze(next_lvl.width, next_lvl.height, next_lvl.seed)
+        if isinstance(maze_result, Err):
+            return replace(
+                self,
+                screen=Screen.ERROR,
+                error_msg=maze_result.context_msg or "Failed to generate the maze.",
+            )
+        new_maze = maze_result.value
+        pacgums, super_pacgums = spawn_pacgums(
+            new_maze, self.config.pacgum, self.config.super_pacgum, next_lvl.seed
+        )
+        new_board = Board(maze=new_maze, pacgums=pacgums, super_pacgums=super_pacgums)
         ghosts = _spawn_ghosts(new_maze)
         return replace(
             self,
@@ -94,6 +133,7 @@ class GameState:
             level_idx=next_idx,
             remaining_time=next_lvl.time,
             screen=Screen.PLAYING,
+            error_msg="",
         )
 
     def lose_life(self) -> GameState:
@@ -113,18 +153,23 @@ class GameState:
         Advance the game by one tick: moves ghosts, checks pacgum and
         ghost collisions, and ticks down the level timer.
         """
+        new_remaining = self.remaining_time - dt
+        if new_remaining <= 0:
+            return replace(
+                self,
+                player=replace(self.player, lives=0),
+                remaining_time=0,
+                screen=Screen.GAME_OVER,
+            )
         new_player = self.player
-
-        # Pre-movement collision check: catches a ghost the player was
-        # already standing on before anything moves this tick. Needed
-        # because a FRIGHTENED ghost flees on its own movement step below,
-        # so checking only after movement would let it dodge every time.
         working_ghosts = []
         for g in self.ghosts:
             if g.position == new_player.position:
                 match g.mode:
                     case GhostMode.CHASING:
-                        return replace(self, player=new_player).lose_life()
+                        return replace(
+                            self, remaining_time=new_remaining, player=new_player
+                        ).lose_life()
                     case GhostMode.FRIGHTENED:
                         working_ghosts.append(eat_ghost(g))
                         new_player = replace(
@@ -155,7 +200,11 @@ class GameState:
                 match g.mode:
                     case GhostMode.CHASING:
                         ticked = replace(
-                            self, board=new_board, player=new_player, ghosts=new_ghosts
+                            self,
+                            board=new_board,
+                            player=new_player,
+                            ghosts=new_ghosts,
+                            remaining_time=new_remaining,
                         )
                         return ticked.lose_life()
                     case GhostMode.FRIGHTENED:
@@ -166,4 +215,13 @@ class GameState:
                         continue
             final_ghosts.append(g)
         new_ghosts = final_ghosts
-        return replace(self, board=new_board, player=new_player, ghosts=new_ghosts)
+        final_state = replace(
+            self,
+            board=new_board,
+            player=new_player,
+            ghosts=new_ghosts,
+            remaining_time=new_remaining,
+        )
+        if new_board.is_cleared():
+            return final_state.advance_level()
+        return final_state
