@@ -142,6 +142,10 @@ class Maze:
         """Maze height in cells."""
         return len(self.cells)
 
+    @property
+    def center(self) -> Position:
+        return (self.width // 2, self.height // 2)
+
     def in_bounds(self, x: int, y: int) -> bool:
         """Return whether a position lies inside the maze.
 
@@ -241,7 +245,9 @@ class Maze:
         if isinstance(routed, Err) or isinstance(routed.value, Nothing):
             return Nothing()
 
-        return Some([(int(tile) % self.width, int(tile) // self.width) for tile in routed.value.value.tiles])
+        return Some([
+            (int(tile) % self.width, int(tile) // self.width) for tile in routed.value.value.tiles
+        ])
 
     def _graph(self) -> MazeGraph:
         """Adapt generator wall masks to the shared immutable graph.

@@ -106,7 +106,7 @@ class Renderer:
         title_rect = title_surface.get_rect(center=(self.width // 2, self.height // 4))
         self.surface.blit(title_surface, title_rect)
         font = pg.font.Font(None, 36)
-        options = ["Start Game", "View Highscore", "Instructions", "Exit"]
+        options = ["Start Game", "View Highscores", "Instructions", "Exit"]
         for index, text in enumerate(options):
             color = MENU_HIGHLIGHT_COLOR if index == state.menu_selection else TEXT_COLOR
             text_surface = font.render(text, True, color)
@@ -284,8 +284,8 @@ class Renderer:
     def handle_input(self) -> list[pg.event.Event]:
         """Poll and return pending pg events for the game loop
         to interpret."""
-        raise NotImplementedError
+        return pg.event.get()
 
     def quit(self) -> None:
         """Tear down the pg window."""
-        raise NotImplementedError
+        pg.quit()

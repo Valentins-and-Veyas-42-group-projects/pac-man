@@ -88,7 +88,7 @@ class GameState:
             self,
             board=new_board,
             player=replace(
-                self.player, position=Position(*new_maze.entry), score=0, lives=self.config.lives
+                self.player, position=Position(*new_maze.center), score=0, lives=self.config.lives
             ),
             ghosts=ghosts,
             level_idx=0,
@@ -96,6 +96,44 @@ class GameState:
             screen=Screen.PLAYING,
             name_entry="",
             error_msg="",
+        )
+
+    @staticmethod
+    def new(config: Config, highscores: list[HighscoreEntry]) -> GameState:
+        level = config.levels[0]
+        maze_result = load_maze(level.width, level.height, level.seed)
+        if isinstance(maze_result, Err):
+            return GameState(
+                screen=Screen.ERROR,
+                error_msg=maze_result.context_msg or "Failed to generate Maze",
+                board=Board(maze=Maze(cells=((0,),), entry=(0, 0), exit=(0, 0))),
+                ghosts=[],
+                config=config,
+                level_idx=0,
+                player=Player(position=Position(0, 0), score=0),
+                highscores=highscores,
+                name_entry="",
+                menu_selection=0,
+                remaining_time=0.0,
+            )
+        new_maze = maze_result.value
+        pacgums, super_pacgums = spawn_pacgums(
+            new_maze, config.pacgum, config.super_pacgum, level.seed
+        )
+        new_board = Board(maze=new_maze, pacgums=pacgums, super_pacgums=super_pacgums)
+        ghosts = _spawn_ghosts(new_maze)
+        return GameState(
+            screen=Screen.MAIN_MENU,
+            config=config,
+            highscores=highscores,
+            board=new_board,
+            player=Player(position=Position(*new_maze.entry), score=0, lives=config.lives),
+            ghosts=ghosts,
+            level_idx=0,
+            remaining_time=0.0,
+            name_entry="",
+            error_msg="",
+            menu_selection=0,
         )
 
     def pause(self) -> GameState:
@@ -129,7 +167,7 @@ class GameState:
         return replace(
             self,
             board=new_board,
-            player=replace(self.player, position=Position(*new_maze.entry)),
+            player=replace(self.player, position=Position(*new_maze.center)),
             ghosts=ghosts,
             level_idx=next_idx,
             remaining_time=next_lvl.time,
@@ -145,7 +183,7 @@ class GameState:
         new_lives = self.player.lives - 1
         if new_lives == 0:
             return replace(self, player=replace(self.player, lives=0), screen=Screen.GAME_OVER)
-        respawned = respawn(self.player, Position(*self.board.maze.entry))
+        respawned = respawn(self.player, Position(*self.board.maze.center))
         new_player = replace(respawned, lives=new_lives)
         return replace(self, player=new_player, ghosts=_spawn_ghosts(self.board.maze))
 

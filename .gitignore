@@ -35,3 +35,4 @@ build/
 *.wat
 *.wasm.map
 *.worker.js
+en.subject.pdf
