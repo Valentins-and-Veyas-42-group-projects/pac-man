@@ -4,7 +4,7 @@
 showing whatever screen is set below; close the window to exit.
 """
 
-import pygame
+import pygame as pg
 from pacman.config import default_config
 from pacman.game.board import Board, spawn_pacgums
 from pacman.game.state import GameState, _spawn_ghosts
@@ -37,11 +37,11 @@ def main() -> None:
     pacgums, super_pacgums = spawn_pacgums(maze, config.pacgum, config.super_pacgum, Some(42))
     ghosts = _spawn_ghosts(maze)
     state = GameState(
-        screen=Screen.HIGHSCORES,
+        screen=Screen.VICTORY,
         config=config,
         level_idx=0,
         board=Board(maze=maze, pacgums=pacgums, super_pacgums=super_pacgums),
-        player=Player(position=Position(0, 0), score=0),
+        player=Player(position=Position(0, 0), score=67),
         ghosts=ghosts,
         remaining_time=0.0,
         highscores=highscores,
@@ -54,8 +54,8 @@ def main() -> None:
 
     running = True
     while running:
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
+        for event in pg.event.get():
+            if event.type == pg.QUIT:
                 running = False
 
     renderer.quit()
