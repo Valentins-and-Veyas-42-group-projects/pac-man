@@ -66,6 +66,7 @@ class GameState:
     highscores: list[HighscoreEntry]
     name_entry: str
     error_msg: str
+    menu_selection: int
 
     def start_game(self) -> GameState:
         """Transition from the main menu into level 1."""
