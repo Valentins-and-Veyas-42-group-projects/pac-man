@@ -58,6 +58,8 @@ class Player:
     score: int
     facing_direction: Direction = Direction.RIGHT
     lives: int = 3
+    desired_direction: Direction | None = None
+    move_timer: int = 0
 
 
 @dataclass
@@ -71,6 +73,7 @@ class Ghost:
     home_pos: Position
     frightened_timer: int
     eaten_timer: int
+    move_timer: int
 
 
 class Screen(Enum):

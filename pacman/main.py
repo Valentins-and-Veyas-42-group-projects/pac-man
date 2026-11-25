@@ -9,7 +9,6 @@ from typed_errs import Err, Ok, Result, catch_bubble
 
 from pacman.analyze.distance_backend import active_distance_backend
 from pacman.config import ConfigError, load_config
-from pacman.game.player import move
 from pacman.game.state import GameState
 from pacman.models import Direction, HighscoreEntry, Screen
 from pacman.visualizer.renderer import Renderer
@@ -84,17 +83,24 @@ def run(args: MainArgs) -> Result[None, ConfigError]:
                         case Screen.PLAYING:
                             match event.key:
                                 case pg.K_UP | pg.K_k:
-                                    new_player = move(state.player, state.board, Direction.UP)
+                                    new_player = replace(
+                                        state.player, desired_direction=Direction.UP
+                                    )
                                     state = replace(state, player=new_player)
                                 case pg.K_RIGHT | pg.K_l:
-                                    new_player = move(state.player, state.board, Direction.RIGHT)
+                                    new_player = replace(
+                                        state.player, desired_direction=Direction.RIGHT
+                                    )
                                     state = replace(state, player=new_player)
-
                                 case pg.K_DOWN | pg.K_j:
-                                    new_player = move(state.player, state.board, Direction.DOWN)
+                                    new_player = replace(
+                                        state.player, desired_direction=Direction.DOWN
+                                    )
                                     state = replace(state, player=new_player)
                                 case pg.K_LEFT | pg.K_h:
-                                    new_player = move(state.player, state.board, Direction.LEFT)
+                                    new_player = replace(
+                                        state.player, desired_direction=Direction.LEFT
+                                    )
                                     state = replace(state, player=new_player)
                                 case pg.K_ESCAPE | pg.K_p:
                                     state = replace(state, screen=Screen.PAUSED)

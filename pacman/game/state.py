@@ -15,7 +15,7 @@ from typed_errs import Err
 from pacman.config import Config
 from pacman.game.board import Board, spawn_pacgums
 from pacman.game.ghosts import eat_ghost, set_frightened, update_ghost
-from pacman.game.player import respawn
+from pacman.game.player import move, respawn
 from pacman.maze_loader import Maze, load_maze
 from pacman.models import (
     Direction,
@@ -27,6 +27,8 @@ from pacman.models import (
     Position,
     Screen,
 )
+
+PLAYER_MOVE_INTERVAL_TICKS = 10
 
 
 def _spawn_ghosts(maze: Maze) -> list[Ghost]:
@@ -47,6 +49,7 @@ def _spawn_ghosts(maze: Maze) -> list[Ghost]:
                 home_pos=home,
                 frightened_timer=0,
                 eaten_timer=0,
+                move_timer=0,
             )
         )
     return ghosts
@@ -200,7 +203,21 @@ class GameState:
                 remaining_time=0,
                 screen=Screen.GAME_OVER,
             )
+        ticks = round(dt * 60)
         new_player = self.player
+        new_move_timer = new_player.move_timer - ticks
+        if new_move_timer <= 0:
+            moved = new_player
+            if new_player.desired_direction is not None:
+                moved = move(new_player, self.board, new_player.desired_direction)
+            if moved.position == new_player.position:
+                moved = move(new_player, self.board, new_player.facing_direction)
+            if moved.position != new_player.position:
+                new_player = replace(moved, move_timer=PLAYER_MOVE_INTERVAL_TICKS)
+            else:
+                new_player = replace(moved, move_timer=0)
+        else:
+            new_player = replace(new_player, move_timer=new_move_timer)
         working_ghosts = []
         for g in self.ghosts:
             if g.position == new_player.position:

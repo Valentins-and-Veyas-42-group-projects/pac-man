@@ -10,7 +10,8 @@ import pygame as pg
 
 from pacman.maze_loader import Maze, Wall
 
-from ..game.state import GameState
+from ..game.ghosts import FRIGHTENED_MOVE_INTERVAL_TICKS, MOVE_INTERVAL_TICKS
+from ..game.state import PLAYER_MOVE_INTERVAL_TICKS, GameState
 from ..models import GhostMode, GhostName, Position, Screen
 
 # Classic arcade palette. No image assets exist in this repo, so every
@@ -192,11 +193,34 @@ class Renderer:
             center = self._tile_center(position, tile_size, offset_x, offset_y)
             radius = int(tile_size * SUPER_PACGUM_RADIUS_RATIO)
             pg.draw.circle(self.surface, SUPER_PACGUM_COLOR, center, radius)
-        player_center = self._tile_center(state.player.position, tile_size, offset_x, offset_y)
+        player_dx, player_dy = state.player.facing_direction.value
+        player_prev = Position(
+            state.player.position.x - player_dx, state.player.position.y - player_dy
+        )
+        player_t = 1 - (state.player.move_timer / PLAYER_MOVE_INTERVAL_TICKS)
+        player_prev_center = self._tile_center(player_prev, tile_size, offset_x, offset_y)
+        player_curr_center = self._tile_center(state.player.position, tile_size, offset_x, offset_y)
+        player_x = int(
+            player_prev_center[0] + (player_curr_center[0] - player_prev_center[0]) * player_t
+        )
+        player_y = int(
+            player_prev_center[1] + (player_curr_center[1] - player_prev_center[1]) * player_t
+        )
+        player_center = (player_x, player_y)
         player_radius = int(tile_size * PLAYER_RADIUS_RATIO)
         pg.draw.circle(self.surface, PLAYER_COLOR, player_center, player_radius)
         for ghost in state.ghosts:
-            center = self._tile_center(ghost.position, tile_size, offset_x, offset_y)
+            dx, dy = ghost.facing_direction.value
+            prev = Position(ghost.position.x - dx, ghost.position.y - dy)
+            if ghost.mode != GhostMode.FRIGHTENED:
+                t = 1 - (ghost.move_timer / MOVE_INTERVAL_TICKS)
+            else:
+                t = 1 - (ghost.move_timer / FRIGHTENED_MOVE_INTERVAL_TICKS)
+            prev_center = self._tile_center(prev, tile_size, offset_x, offset_y)
+            curr_center = self._tile_center(ghost.position, tile_size, offset_x, offset_y)
+            x = int(prev_center[0] + (curr_center[0] - prev_center[0]) * t)
+            y = int(prev_center[1] + (curr_center[1] - prev_center[1]) * t)
+            center = (x, y)
             radius = int(tile_size * GHOST_RADIUS_RATIO)
             match ghost.mode:
                 case GhostMode.EATEN:

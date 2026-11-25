@@ -31,6 +31,7 @@ def _ghost(
     home: Position = Position(0, 2),
     frightened_timer: int = 0,
     eaten_timer: int = 0,
+    move_timer: int = 0,
 ) -> Ghost:
     return Ghost(
         name=GhostName.BLINKY,
@@ -40,6 +41,7 @@ def _ghost(
         home_pos=home,
         frightened_timer=frightened_timer,
         eaten_timer=eaten_timer,
+        move_timer=move_timer,
     )
 
 

@@ -14,6 +14,8 @@ from .board import Board
 FRIGHTENED_TICKS = 360
 RESPAWN_TICKS = 90
 TICK_RATE = 60
+MOVE_INTERVAL_TICKS = 12
+FRIGHTENED_MOVE_INTERVAL_TICKS = MOVE_INTERVAL_TICKS * 2
 
 
 def update_ghost(
@@ -34,31 +36,45 @@ def update_ghost(
     blinky = next(g for g in all_ghosts if g.name is GhostName.BLINKY)
     match ghost.mode:
         case GhostMode.CHASING:
+            new_move_timer = ghost.move_timer - ticks
+            if new_move_timer > 0:
+                return replace(ghost, move_timer=new_move_timer)
             directions = _legal_directions(ghost, board)
             if not directions:
-                return ghost
+                return replace(ghost, move_timer=MOVE_INTERVAL_TICKS)
             chosen = _best_direction(ghost, directions, _target_for(ghost, player, blinky), True)
             dx, dy = chosen.value
             new_pos = Position(ghost.position.x + dx, ghost.position.y + dy)
-            return replace(ghost, position=new_pos, mode=GhostMode.CHASING, facing_direction=chosen)
+            return replace(
+                ghost,
+                position=new_pos,
+                mode=GhostMode.CHASING,
+                facing_direction=chosen,
+                move_timer=MOVE_INTERVAL_TICKS,
+            )
         case GhostMode.FRIGHTENED:
             new_timer = max(0, ghost.frightened_timer - ticks)
             if new_timer == 0:
                 return replace(ghost, mode=GhostMode.CHASING, frightened_timer=0)
-            else:
-                directions = _legal_directions(ghost, board)
-                if not directions:
-                    return replace(ghost, frightened_timer=new_timer)
-                chosen = _best_direction(ghost, directions, player.position, False)
-                dx, dy = chosen.value
-                new_pos = Position(ghost.position.x + dx, ghost.position.y + dy)
+            new_move_timer = ghost.move_timer - ticks
+            if new_move_timer > 0:
+                return replace(ghost, frightened_timer=new_timer, move_timer=new_move_timer)
+            directions = _legal_directions(ghost, board)
+            if not directions:
                 return replace(
-                    ghost,
-                    mode=GhostMode.FRIGHTENED,
-                    frightened_timer=new_timer,
-                    position=new_pos,
-                    facing_direction=chosen,
+                    ghost, frightened_timer=new_timer, move_timer=FRIGHTENED_MOVE_INTERVAL_TICKS
                 )
+            chosen = _best_direction(ghost, directions, player.position, False)
+            dx, dy = chosen.value
+            new_pos = Position(ghost.position.x + dx, ghost.position.y + dy)
+            return replace(
+                ghost,
+                mode=GhostMode.FRIGHTENED,
+                frightened_timer=new_timer,
+                position=new_pos,
+                facing_direction=chosen,
+                move_timer=FRIGHTENED_MOVE_INTERVAL_TICKS,
+            )
         case GhostMode.EATEN:
             new_timer = max(0, ghost.eaten_timer - ticks)
             if new_timer == 0:
