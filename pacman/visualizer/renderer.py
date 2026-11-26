@@ -43,7 +43,7 @@ PLAYER_RADIUS_RATIO = 0.4
 GHOST_RADIUS_RATIO = 0.4
 PACGUM_RADIUS_RATIO = 0.1
 SUPER_PACGUM_RADIUS_RATIO = 0.25
-WALL_THICKNESS_RATIO = 0.08
+WALL_THICKNESS_RATIO = 0.2
 
 
 class Renderer:
@@ -54,12 +54,24 @@ class Renderer:
         self.height = height
         self.surface: pg.Surface | None = None
         self.base_y = self.height // 2
+        self._fonts: dict[int, pg.font.Font] = {}
 
     def init_window(self) -> None:
         """Initialize pg and open the game window."""
         pg.init()
         self.surface = pg.display.set_mode((self.width, self.height))
         pg.display.set_caption("Pac-Man")
+
+    def _font(self, size: int) -> pg.font.Font:
+        """Return a cached font for `size`, creating it once on first use.
+
+        pg.font.Font(...) is expensive to call repeatedly; draw_game
+        needs several fonts every frame, so recreating them each call
+        was a real source of stutter.
+        """
+        if size not in self._fonts:
+            self._fonts[size] = pg.font.Font(None, size)
+        return self._fonts[size]
 
     def _calc_tile_size(self, maze: Maze, available_height: int) -> int:
         return min(self.width // maze.width, available_height // maze.height)
@@ -102,11 +114,11 @@ class Renderer:
     def draw_main_menu(self, state: GameState) -> None:
         """Draw: Start Game / View Highscores / Instructions / Exit."""
         assert self.surface is not None
-        title_font = pg.font.Font(None, 72)
+        title_font = self._font(72)
         title_surface = title_font.render("PAC-MAN", True, TITLE_COLOR)
         title_rect = title_surface.get_rect(center=(self.width // 2, self.height // 4))
         self.surface.blit(title_surface, title_rect)
-        font = pg.font.Font(None, 36)
+        font = self._font(36)
         options = ["Start Game", "View Highscores", "Instructions", "Exit"]
         for index, text in enumerate(options):
             color = MENU_HIGHLIGHT_COLOR if index == state.menu_selection else TEXT_COLOR
@@ -129,7 +141,7 @@ class Renderer:
             "Avoid ghosts while they're chasing you",
             "Clear the level before time runs out!",
         ]
-        font = pg.font.Font(None, 36)
+        font = self._font(36)
         for index, text in enumerate(lines):
             text_surface = font.render(text, True, TEXT_COLOR)
             line_spacing = 33
@@ -140,13 +152,13 @@ class Renderer:
     def draw_highscores(self, state: GameState) -> None:
         """Draw the top-10 highscore list."""
         assert self.surface is not None
-        header_font = pg.font.Font(None, 75)
+        header_font = self._font(75)
         header_surface = header_font.render("HIGHSCORES", True, TITLE_COLOR)
         header_rect = header_surface.get_rect(center=(self.width // 2, self.height // 6))
         self.surface.blit(header_surface, header_rect)
         lines = state.highscores
         sorted_scores = sorted(lines, key=lambda entry: entry.score, reverse=True)
-        font = pg.font.Font(None, 45)
+        font = self._font(45)
         surfaces = [
             font.render(f"{index + 1}. {entry.name}: {entry.score}", True, TEXT_COLOR)
             for index, entry in enumerate(sorted_scores[:10])
@@ -238,7 +250,7 @@ class Renderer:
         ]
         margin = 10
         gap = 80
-        font = pg.font.Font(None, 30)
+        font = self._font(30)
         surfaces = [font.render(text, True, TEXT_COLOR) for text in lines]
         total_width = sum(s.get_width() for s in surfaces) + gap * (len(surfaces) - 1)
         x = (self.width - total_width) // 2
@@ -250,12 +262,12 @@ class Renderer:
     def draw_pause_menu(self, state: GameState) -> None:
         """Draw: Resume / Return to main menu."""
         assert self.surface is not None
-        title_font = pg.font.Font(None, 100)
+        title_font = self._font(100)
         title_surface = title_font.render("PAUSED", True, TITLE_COLOR)
         title_rect = title_surface.get_rect(center=(self.width // 2, self.height // 4))
         self.surface.blit(title_surface, title_rect)
         options = ["Resume", "Main Menu"]
-        font = pg.font.Font(None, 60)
+        font = self._font(60)
         for index, text in enumerate(options):
             color = MENU_HIGHLIGHT_COLOR if index == state.menu_selection else TEXT_COLOR
             text_surface = font.render(text, True, color)
@@ -268,14 +280,14 @@ class Renderer:
         """Draw the final score and the name-entry prompt for the
         highscore list."""
         assert self.surface is not None
-        title_font = pg.font.Font(None, 150)
+        title_font = self._font(150)
         title_surface = title_font.render("GAME OVER", 1, GAME_OVER_COLOR)
         title_rect = title_surface.get_rect(center=(self.width // 2, self.height // 3))
         self.surface.blit(title_surface, title_rect)
-        score_surface = pg.font.Font(None, 70).render(f"Score: {state.player.score}", 1, TEXT_COLOR)
+        score_surface = self._font(70).render(f"Score: {state.player.score}", 1, TEXT_COLOR)
         score_rect = score_surface.get_rect(center=(self.width // 2, title_rect.bottom + 40))
         self.surface.blit(score_surface, score_rect)
-        entry_surface = pg.font.Font(None, 40).render(
+        entry_surface = self._font(40).render(
             f"Enter your name: {state.name_entry}", 1, TEXT_COLOR
         )
         entry_rect = entry_surface.get_rect(center=(self.width // 2, score_rect.bottom + 50))
@@ -285,13 +297,13 @@ class Renderer:
         """Draw the final score, a congratulatory message, and the
         name-entry prompt for the highscore list."""
         assert self.surface is not None
-        title_surface = pg.font.Font(None, 150).render("YOU WON!!!", 1, "green")
+        title_surface = self._font(150).render("YOU WON!!!", 1, "green")
         title_rect = title_surface.get_rect(center=(self.width // 2, self.height // 3))
         self.surface.blit(title_surface, title_rect)
-        score_surface = pg.font.Font(None, 70).render(f"Score: {state.player.score}", 1, TEXT_COLOR)
+        score_surface = self._font(70).render(f"Score: {state.player.score}", 1, TEXT_COLOR)
         score_rect = score_surface.get_rect(center=(self.width // 2, title_rect.bottom + 40))
         self.surface.blit(score_surface, score_rect)
-        entry_surface = pg.font.Font(None, 40).render(
+        entry_surface = self._font(40).render(
             f"Enter your name: {state.name_entry}", 1, TEXT_COLOR
         )
         entry_rect = entry_surface.get_rect(center=(self.width // 2, score_rect.bottom + 50))
@@ -300,7 +312,7 @@ class Renderer:
     def draw_error(self, state: GameState) -> None:
         """Draw: Error screen with Error message"""
         assert self.surface is not None
-        font = pg.font.Font(None, 36)
+        font = self._font(36)
         text_surface = font.render(state.error_msg, True, TEXT_COLOR)
         text_rect = text_surface.get_rect(center=(self.width // 2, self.height // 2))
         self.surface.blit(text_surface, text_rect)

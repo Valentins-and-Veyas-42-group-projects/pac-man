@@ -6,6 +6,8 @@ after being eaten. The exact chase heuristic (distance-based, random,
 etc.) is left open by the subject.
 """
 
+import random
+from collections import deque
 from dataclasses import replace
 
 from ..models import Direction, Ghost, GhostMode, GhostName, Player, Position
@@ -16,6 +18,9 @@ RESPAWN_TICKS = 90
 TICK_RATE = 60
 MOVE_INTERVAL_TICKS = 12
 FRIGHTENED_MOVE_INTERVAL_TICKS = MOVE_INTERVAL_TICKS * 2
+CLYDE_SHY_DISTANCE = 8
+MAX_BFS_TILES = 300
+GHOST_WANDER_RADIUS = 2
 
 
 def update_ghost(
@@ -41,8 +46,19 @@ def update_ghost(
                 return replace(ghost, move_timer=new_move_timer)
             directions = _legal_directions(ghost, board)
             if not directions:
-                return replace(ghost, move_timer=MOVE_INTERVAL_TICKS)
-            chosen = _best_direction(ghost, directions, _target_for(ghost, player, blinky), True)
+                return replace(ghost, move_timer=0)
+            if len(directions) == 1:
+                chosen = directions[0]
+            else:
+                target = _target_for(ghost, player, blinky)
+                retreating_to_corner = ghost.name is GhostName.CLYDE and target == ghost.home_pos
+                bfs_direction, distance_to_target = _bfs_direction(ghost, target, board)
+                if bfs_direction is None or (
+                    retreating_to_corner and distance_to_target <= GHOST_WANDER_RADIUS
+                ):
+                    chosen = random.choice(directions)
+                else:
+                    chosen = bfs_direction
             dx, dy = chosen.value
             new_pos = Position(ghost.position.x + dx, ghost.position.y + dy)
             return replace(
@@ -61,9 +77,7 @@ def update_ghost(
                 return replace(ghost, frightened_timer=new_timer, move_timer=new_move_timer)
             directions = _legal_directions(ghost, board)
             if not directions:
-                return replace(
-                    ghost, frightened_timer=new_timer, move_timer=FRIGHTENED_MOVE_INTERVAL_TICKS
-                )
+                return replace(ghost, frightened_timer=new_timer, move_timer=0)
             chosen = _best_direction(ghost, directions, player.position, False)
             dx, dy = chosen.value
             new_pos = Position(ghost.position.x + dx, ghost.position.y + dy)
@@ -96,9 +110,45 @@ def _target_for(ghost: Ghost, player: Player, blinky: Ghost) -> Position:
             return Position(2 * p2.x - blinky.position.x, 2 * p2.y - blinky.position.y)
         case GhostName.CLYDE:
             manhatten_distance = _manhattan_distance(ghost, player)
-            if manhatten_distance > 8:
+            if manhatten_distance > CLYDE_SHY_DISTANCE:
                 return player.position
             return ghost.home_pos
+
+
+def _bfs_direction(ghost: Ghost, target: Position, board: Board) -> tuple[Direction | None, int]:
+    """Return the first step of the shortest path from the ghost toward
+    `target`, plus the real distance (in moves, following corridors --
+    not a straight line) to wherever that step leads toward.
+
+    The direction is `None` when the ghost is already as close as it
+    can get (distance `0`). Explores every tile the ghost can reach,
+    so it can never get stuck orbiting a loop the way a greedy
+    one-step heuristic can. If `target` itself isn't reachable (e.g. a
+    projected target that lands outside the maze), steps toward
+    whichever reachable tile is closest to it instead.
+    """
+    if ghost.position == target:
+        return None, 0
+    first_step: dict[Position, Direction | None] = {ghost.position: None}
+    distance: dict[Position, int] = {ghost.position: 0}
+    queue: deque[Position] = deque([ghost.position])
+    while queue and len(first_step) < MAX_BFS_TILES:
+        current = queue.popleft()
+        for direction in Direction:
+            if board.is_wall(current, direction):
+                continue
+            dx, dy = direction.value
+            neighbor = Position(current.x + dx, current.y + dy)
+            if neighbor not in first_step:
+                step = first_step[current] or direction
+                first_step[neighbor] = step
+                distance[neighbor] = distance[current] + 1
+                if neighbor == target:
+                    return step, distance[neighbor]
+                queue.append(neighbor)
+
+    best_tile = min(first_step, key=lambda tile: abs(tile.x - target.x) + abs(tile.y - target.y))
+    return first_step[best_tile], distance[best_tile]
 
 
 def _legal_directions(ghost: Ghost, board: Board) -> list[Direction]:

@@ -13,7 +13,7 @@ from dataclasses import dataclass, replace
 from typed_errs import Err
 
 from pacman.config import Config
-from pacman.game.board import Board, spawn_pacgums
+from pacman.game.board import Board, nearest_open_tile, spawn_pacgums
 from pacman.game.ghosts import eat_ghost, set_frightened, update_ghost
 from pacman.game.player import move, respawn
 from pacman.maze_loader import Maze, load_maze
@@ -91,7 +91,10 @@ class GameState:
             self,
             board=new_board,
             player=replace(
-                self.player, position=Position(*new_maze.center), score=0, lives=self.config.lives
+                self.player,
+                position=Position(*nearest_open_tile(new_maze, new_maze.center)),
+                score=0,
+                lives=self.config.lives,
             ),
             ghosts=ghosts,
             level_idx=0,
@@ -170,7 +173,9 @@ class GameState:
         return replace(
             self,
             board=new_board,
-            player=replace(self.player, position=Position(*new_maze.center)),
+            player=replace(
+                self.player, position=Position(*nearest_open_tile(new_maze, new_maze.center))
+            ),
             ghosts=ghosts,
             level_idx=next_idx,
             remaining_time=next_lvl.time,
@@ -186,7 +191,9 @@ class GameState:
         new_lives = self.player.lives - 1
         if new_lives == 0:
             return replace(self, player=replace(self.player, lives=0), screen=Screen.GAME_OVER)
-        respawned = respawn(self.player, Position(*self.board.maze.center))
+        respawned = respawn(
+            self.player, Position(*nearest_open_tile(self.board.maze, self.board.maze.center))
+        )
         new_player = replace(respawned, lives=new_lives)
         return replace(self, player=new_player, ghosts=_spawn_ghosts(self.board.maze))
 

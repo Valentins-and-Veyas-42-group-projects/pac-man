@@ -4,11 +4,11 @@
 
     # levels: one entry per level; width/height of the generated maze
     "levels": [
-        { "width": 21, "height": 21 }
+        { "width": 20, "height": 20}
     ],
 
     "lives": 3,
-    "pacgum": 42,
+    "pacgum": 200,
     "super_pacgum": 4,
     "points_per_pacgum": 10,
     "points_per_super_pacgum": 50,

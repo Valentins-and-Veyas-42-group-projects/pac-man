@@ -8,7 +8,7 @@ from dataclasses import dataclass, field, replace
 
 from typed_errs import Option
 
-from ..maze_loader import Maze
+from ..maze_loader import Maze, Wall
 from ..models import Direction, Position
 
 
@@ -50,6 +50,22 @@ class Board:
     def is_cleared(self) -> bool:
         """Return whether all pacgums and super-pacgums are eaten."""
         return not self.pacgums and not self.super_pacgums
+
+
+def nearest_open_tile(maze: Maze, target: tuple[int, int]) -> tuple[int, int]:
+    visited: set[tuple[int, int]] = {target}
+    queue: deque[tuple[int, int]] = deque([target])
+    while queue:
+        x, y = queue.popleft()
+        if maze.cells[y][x] != Wall.NORTH | Wall.EAST | Wall.SOUTH | Wall.WEST:
+            return (x, y)
+        for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0)):
+            neighbor = (x + dx, y + dy)
+            if maze.in_bounds(*neighbor) and neighbor not in visited:
+                visited.add(neighbor)
+                queue.append(neighbor)
+    # TODO:Proper Error handling maybeee. Its impossible to get to this path without something else going reallly wrong
+    return (0, 0)
 
 
 def spawn_pacgums(
